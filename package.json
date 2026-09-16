@@ -9,10 +9,11 @@
     "test": "node tools/check-assets.ts && vitest run && vitest run --config vitest.worker.config.ts",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
-    "deploy": "node tools/check-assets.ts && wrangler deploy",
+    "deploy": "wrangler d1 migrations apply META --remote && wrangler deploy",
     "test:unit": "vitest run",
     "test:worker": "vitest run --config vitest.worker.config.ts",
-    "check": "node tools/check-assets.ts"
+    "check": "node tools/check-assets.ts",
+    "release": "node tools/check-assets.ts && npm run deploy"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.1.10",

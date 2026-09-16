@@ -1,0 +1,5 @@
+# The one secret a deployment asks for (plan 8.2). Choose a long random value
+# of at least 12 characters. Recall asks for it ONCE, within an hour of the
+# deploy, to claim the backend; after that it is useless until you change it
+# and redeploy.
+OWNER_SETUP_CODE=
