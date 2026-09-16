@@ -2,8 +2,14 @@
 // CORS header: the web app is served from the same origin (plan 10.3).
 
 export class HttpFailure extends Error {
-  constructor(readonly status: number, readonly code: string, message: string, readonly extra: Record<string, unknown> = {}) {
+  readonly status: number;
+  readonly code: string;
+  readonly extra: Record<string, unknown>;
+  constructor(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
     super(message);
+    this.status = status;
+    this.code = code;
+    this.extra = extra;
   }
 }
 

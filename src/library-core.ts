@@ -16,7 +16,13 @@ export interface Sql {
 }
 
 export class Refused extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); }
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
 }
 
 const DAY = 86_400_000;
@@ -61,7 +67,13 @@ export class LibraryCore {
   private lastAckWrite = new Map<string, number>();
   private lastSeenWrite = new Map<string, number>();
 
-  constructor(private readonly sql: Sql, private readonly newId: () => string = () => crypto.randomUUID()) {}
+  private readonly sql: Sql;
+  private readonly newId: () => string;
+
+  constructor(sql: Sql, newId: () => string = () => crypto.randomUUID()) {
+    this.sql = sql;
+    this.newId = newId;
+  }
 
   migrate(): void {
     for (const s of DO_SCHEMA) this.sql.exec(s);

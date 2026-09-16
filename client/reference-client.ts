@@ -37,8 +37,12 @@ export interface Faults {
 }
 
 export class HttpError extends Error {
-  constructor(readonly status: number, readonly body: Record<string, unknown>) {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  constructor(status: number, body: Record<string, unknown>) {
     super(`${status} ${String(body.error ?? "")}`);
+    this.status = status;
+    this.body = body;
   }
 }
 
@@ -55,13 +59,19 @@ export class ReferenceClient {
   faults: Faults = {};
   private clockSkewMs = 0;
 
-  constructor(
-    readonly base: string,
-    readonly deviceId: string,
-    public token: string,
-    private readonly fetchFn: FetchLike,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+  readonly base: string;
+  readonly deviceId: string;
+  token: string;
+  private fetchFn: FetchLike;
+  private readonly now: () => number;
+
+  constructor(base: string, deviceId: string, token: string, fetchFn: FetchLike, now: () => number = () => Date.now()) {
+    this.base = base;
+    this.deviceId = deviceId;
+    this.token = token;
+    this.fetchFn = fetchFn;
+    this.now = now;
+  }
 
   setClockSkew(ms: number): void { this.clockSkewMs = ms; }
 

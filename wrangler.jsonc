@@ -31,5 +31,26 @@
     "R2_ENABLED": "true",
     "DO_ROWS_DAILY_LIMIT": "100000"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    // The long-lived development deployment (plan 11.3 option A). Synthetic data only.
+    "dev": {
+      "name": "recall-dev",
+      "durable_objects": {
+        "bindings": [
+          { "name": "LIBRARY", "class_name": "LibraryDO" },
+          { "name": "BUDGET", "class_name": "BudgetDO" },
+          { "name": "LIMITER", "class_name": "LimiterDO" }
+        ]
+      },
+      "d1_databases": [
+        { "binding": "META", "database_name": "recall-dev-meta", "migrations_dir": "migrations" }
+      ],
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "vars": {
+        "R2_ENABLED": "true",
+        "DO_ROWS_DAILY_LIMIT": "100000"
+      }
+    }
+  }
 }
