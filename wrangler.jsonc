@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Recall's backend. This is the NOTES-ONLY configuration: no R2 binding, so a
+  // deployment needs no payment method and cannot bill (plan 36.7). Attachment
+  // storage is wrangler.attachments.jsonc, generated from this file.
+  "name": "recall",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-16",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./assets",
+    "binding": "ASSETS",
+    "run_worker_first": ["/v1/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LIBRARY", "class_name": "LibraryDO" },
+      { "name": "BUDGET", "class_name": "BudgetDO" },
+      { "name": "LIMITER", "class_name": "LimiterDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LibraryDO", "BudgetDO", "LimiterDO"] }
+  ],
+  "d1_databases": [
+    { "binding": "META", "database_name": "recall-meta", "migrations_dir": "migrations" }
+  ],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "vars": {
+    "R2_ENABLED": "true",
+    "DO_ROWS_DAILY_LIMIT": "100000"
+  },
+  "observability": { "enabled": true }
+}

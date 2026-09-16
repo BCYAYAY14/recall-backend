@@ -249,6 +249,7 @@ export const CASES: Case[] = [
       check(phone.cursor === 0 && phone.rows.size === 0, "a crashed apply left partial state");
       phone.faults.crashMidApply = undefined;
       await phone.pull();
+      await mac.pull();
       await sameDigest(mac, phone, mac);
     },
   },
@@ -293,12 +294,13 @@ export const CASES: Case[] = [
     },
   },
   {
-    id: "P23", name: "an empty library bootstraps with zero errors",
+    id: "P23", name: "a bootstrap (of an empty or a populated library) completes and matches the server",
     async run(env) {
       const phone = await env.device("iphone");
       await phone.bootstrap();
       await phone.pull();
-      check(phone.rows.size === 0, "rows appeared from nowhere");
+      const remote = await phone.request("GET", "/v1/digest");
+      check(JSON.stringify(await phone.digest()) === JSON.stringify(remote.lanes), "the bootstrapped store differs from the server");
     },
   },
   {
@@ -427,8 +429,9 @@ export const CASES: Case[] = [
       const frame = await phone.request("GET", "/v1/pull?since=0");
       await phone.applyFrame(frame as never);
       const cursor = phone.cursor;
+      const before = JSON.stringify(await phone.digest());
       await phone.applyFrame(frame as never);
-      check(phone.cursor === cursor && phone.rows.size === 1, "a redelivered frame was applied twice");
+      check(phone.cursor === cursor && JSON.stringify(await phone.digest()) === before, "a redelivered frame was applied twice");
       void doc;
     },
   },
