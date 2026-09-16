@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Recall's backend WITH ATTACHMENT STORAGE (plan 36.7). The same Worker as
+  // wrangler.jsonc plus one R2 binding. Deploying this needs R2 activated on
+  // the account, which needs a payment method: do not deploy it before the
+  // zero-cost protection gate (plan 32.2, FI-16a..j, B1..B13) has passed.
+  // `wrangler dev -c wrangler.attachments.jsonc` runs it LOCALLY with an
+  // emulated bucket and touches no account. test/unit/config.test.ts keeps
+  // it identical to wrangler.jsonc apart from the binding.
+  "name": "recall",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-16",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./assets",
+    "binding": "ASSETS",
+    "run_worker_first": ["/v1/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LIBRARY", "class_name": "LibraryDO" },
+      { "name": "BUDGET", "class_name": "BudgetDO" },
+      { "name": "LIMITER", "class_name": "LimiterDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LibraryDO", "BudgetDO", "LimiterDO"] }
+  ],
+  "d1_databases": [
+    { "binding": "META", "database_name": "recall-meta", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "recall-media" }
+  ],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "vars": {
+    "R2_ENABLED": "true",
+    "DO_ROWS_DAILY_LIMIT": "100000"
+  },
+  "observability": { "enabled": true }
+}
