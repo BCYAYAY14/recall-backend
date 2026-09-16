@@ -1,0 +1,24 @@
+{
+  "name": "recall-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Cloudflare backend for Recall: one Worker, a Durable Object library, D1 control plane, R2 attachments and the read-only web viewer.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.1.10",
+    "@cloudflare/workers-types": "5.20260916.1",
+    "@types/node": "24.13.5",
+    "@vitest/runner": "4.1.11",
+    "@vitest/snapshot": "4.1.11",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.132.0"
+  }
+}

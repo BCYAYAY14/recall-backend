@@ -1,0 +1,2387 @@
+{
+ "about": "Canonical JSON (keys by UTF-8 bytes, ECMAScript numbers, minimal escapes), sha256 over it, and op_id = uuidv5(c31e75f6-172f-4c64-a83b-94df6e707132, device|lane|id|updated_at_ms|payload_digest) with payload {content?, env}. Swift and TypeScript must match every string.",
+ "cases": [
+  {
+   "input": {
+    "s": ""
+   },
+   "canonical": "{\"s\":\"\"}",
+   "sha256": "6f600f2520d1f84f59052fea1223d39ea8f79da21817fd1ca486770e17ddb1b8"
+  },
+  {
+   "input": {
+    "s": "a"
+   },
+   "canonical": "{\"s\":\"a\"}",
+   "sha256": "3390a5617b3c2fffbab6630038182bf2d0c4ab770f6ed8bb4148bcfb57a0df74"
+  },
+  {
+   "input": {
+    "s": "Hello, world"
+   },
+   "canonical": "{\"s\":\"Hello, world\"}",
+   "sha256": "24933ec02f976f3d393c9eb7e8584b13c1750733fe01dfca52d68fedba84940f"
+  },
+  {
+   "input": {
+    "s": "quote \" and backslash \\"
+   },
+   "canonical": "{\"s\":\"quote \\\" and backslash \\\\\"}",
+   "sha256": "ac6528c4e818a7012984f4511bec84fd71f8b460fed4602bc90a0b8160fce967"
+  },
+  {
+   "input": {
+    "s": "tab\tnewline\nreturn\r"
+   },
+   "canonical": "{\"s\":\"tab\\tnewline\\nreturn\\r\"}",
+   "sha256": "e91c35f64bf5d1c953f9525105c0d36d6733081886e654e001e4c23a110ed21e"
+  },
+  {
+   "input": {
+    "s": "control \u0001\u001f\u0000"
+   },
+   "canonical": "{\"s\":\"control \\u0001\\u001f\\u0000\"}",
+   "sha256": "fab1ac1113751c134277d8239d6935d375bc299aa907d69dc6350802ea403bc3"
+  },
+  {
+   "input": {
+    "s": "slash / stays"
+   },
+   "canonical": "{\"s\":\"slash / stays\"}",
+   "sha256": "df4672244042c9209b8beee859c26c5d3c540e444f7ff30578b90f408526b5fe"
+  },
+  {
+   "input": {
+    "s": "é accent"
+   },
+   "canonical": "{\"s\":\"é accent\"}",
+   "sha256": "f0c945c296aeca7f68dcd54f105d1613302fe11f3323a58a0d383a5ca47e3a78"
+  },
+  {
+   "input": {
+    "s": "日本語"
+   },
+   "canonical": "{\"s\":\"日本語\"}",
+   "sha256": "6d6762aeb680c66a0b278c744f547a76fda9d9e2017603b317d680dceec4bfc4"
+  },
+  {
+   "input": {
+    "s": "emoji 😀 and 🇦🇺"
+   },
+   "canonical": "{\"s\":\"emoji 😀 and 🇦🇺\"}",
+   "sha256": "76cc8ee534d11c464403ba53b4d8bb0f28a919be76ce1aaed423917595ae9437"
+  },
+  {
+   "input": {
+    "s": "{{img:3f2a}}"
+   },
+   "canonical": "{\"s\":\"{{img:3f2a}}\"}",
+   "sha256": "26de5d2a4b86b4ceee496435fd0e05c7430950396e88a531e8430ba63c5da702"
+  },
+  {
+   "input": {
+    "s": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"s\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "c4d961dbb84ba76eed5285963bdd65fc5e407ff7d37d6382422428716204dd24"
+  },
+  {
+   "input": {
+    "s": "front :: back"
+   },
+   "canonical": "{\"s\":\"front :: back\"}",
+   "sha256": "47dc2a6ad64274b8924bd7752666568af0229afb63cb63a78db56793f5f66e63"
+  },
+  {
+   "input": {
+    "s": "perro <-> dog"
+   },
+   "canonical": "{\"s\":\"perro <-> dog\"}",
+   "sha256": "1163ae0ba214c5bb0108abe0857ffb81ed5001171f92b2122159fb98de031ba4"
+  },
+  {
+   "input": {
+    "s": " line sep "
+   },
+   "canonical": "{\"s\":\" line sep \"}",
+   "sha256": "f5c9d911c7734f386fdb2c9db65af8b6c8b93969a13fcc68373c2ce8933de9c9"
+  },
+  {
+   "input": {
+    "s": " delete"
+   },
+   "canonical": "{\"s\":\" delete\"}",
+   "sha256": "f20f6575a1636723a0940d163c9b45d018b59e9a31e8e373c80bb7de6aa7290c"
+  },
+  {
+   "input": {
+    "s": "backspace \b formfeed \f"
+   },
+   "canonical": "{\"s\":\"backspace \\b formfeed \\f\"}",
+   "sha256": "ab64fd3402fdb521c4315ca84b8d5c5a4585092cabb90e4c20a5ab62e0d2f5c4"
+  },
+  {
+   "input": {
+    "s": "<img src=x onerror=alert(1)>"
+   },
+   "canonical": "{\"s\":\"<img src=x onerror=alert(1)>\"}",
+   "sha256": "61c22337590f8dfa4edaa5d87ddc37eb6a43e9a179031f9d11e95a1bed627642"
+  },
+  {
+   "input": {
+    "s": "zero​width"
+   },
+   "canonical": "{\"s\":\"zero​width\"}",
+   "sha256": "8bc502060c940fe0f479df0e31c3a4caa6f28bbe87e06dcbb73cd464218adf12"
+  },
+  {
+   "input": {
+    "s": "𝔘𝔫"
+   },
+   "canonical": "{\"s\":\"𝔘𝔫\"}",
+   "sha256": "9a2551ffd15158bfdc1066374cee230f90732c30a1bf1841a7969853d1a99d45"
+  },
+  {
+   "input": {
+    "n": 0
+   },
+   "canonical": "{\"n\":0}",
+   "sha256": "f3013f933b9fb80ab6d995e7ad9da36f683837ba1d81e950c943d40111eac2f0"
+  },
+  {
+   "input": {
+    "n": 0
+   },
+   "canonical": "{\"n\":0}",
+   "sha256": "f3013f933b9fb80ab6d995e7ad9da36f683837ba1d81e950c943d40111eac2f0"
+  },
+  {
+   "input": {
+    "n": 1
+   },
+   "canonical": "{\"n\":1}",
+   "sha256": "2bfd14f43d17fc7cea24e0917a8879b4b2f880b8baeec1b9d90fbaad655e71bd"
+  },
+  {
+   "input": {
+    "n": -1
+   },
+   "canonical": "{\"n\":-1}",
+   "sha256": "0c31e9341837b3869856e8ea000cdc2668e68a8bd0f291d61c3d7ea52bbcff96"
+  },
+  {
+   "input": {
+    "n": 7
+   },
+   "canonical": "{\"n\":7}",
+   "sha256": "1dd42de9287c1b6a96c617376c0df6b8304485783ed0b4803f1aac0f119471a5"
+  },
+  {
+   "input": {
+    "n": 42
+   },
+   "canonical": "{\"n\":42}",
+   "sha256": "4e0730f238f81de137ff27d89ec3bcc3ebadf95107661387df82043c4ec25475"
+  },
+  {
+   "input": {
+    "n": 1000000
+   },
+   "canonical": "{\"n\":1000000}",
+   "sha256": "1969b7e3f1cada7e82b129373202431a4db05c0301f914c67f20afac4661e753"
+  },
+  {
+   "input": {
+    "n": 9007199254740991
+   },
+   "canonical": "{\"n\":9007199254740991}",
+   "sha256": "e1da48c6a6089f06ecb4e0a2259e658e3786b2420f52baccdf929ec6460d7b41"
+  },
+  {
+   "input": {
+    "n": -9007199254740991
+   },
+   "canonical": "{\"n\":-9007199254740991}",
+   "sha256": "d49d713821fc149f81ef6ca8054beeba696f5da052f0ab3e2d773808c5a9d625"
+  },
+  {
+   "input": {
+    "n": 0.1
+   },
+   "canonical": "{\"n\":0.1}",
+   "sha256": "c20c34ed16c837e86b4dcdb33f98c274c9f7da1231f64302082d2cd50743f951"
+  },
+  {
+   "input": {
+    "n": 0.5
+   },
+   "canonical": "{\"n\":0.5}",
+   "sha256": "aec38c68ae9784cd6c9391c1d52335984c2722d6ec167168b08027566480962d"
+  },
+  {
+   "input": {
+    "n": 1.5
+   },
+   "canonical": "{\"n\":1.5}",
+   "sha256": "cb14d55cfe562fd6592d919f5dfacfa8708687b746a1d110c6dd5529c410e772"
+  },
+  {
+   "input": {
+    "n": -2.25
+   },
+   "canonical": "{\"n\":-2.25}",
+   "sha256": "69c36cf5511b9fb4622a5d0c23c956e4b84d5854c93efd95207bf198aa771287"
+  },
+  {
+   "input": {
+    "n": 3.2847123
+   },
+   "canonical": "{\"n\":3.2847123}",
+   "sha256": "f190007965a2af97393f9e4ab6994ca292e1d6eeb532c9023009e9e790050625"
+  },
+  {
+   "input": {
+    "n": 12.000000001
+   },
+   "canonical": "{\"n\":12.000000001}",
+   "sha256": "21442062e7a3e6d684a884b8b62980af4ce36c0f4f8bfd142756c7da1c762845"
+  },
+  {
+   "input": {
+    "n": 1e-7
+   },
+   "canonical": "{\"n\":1e-7}",
+   "sha256": "747d6d23b64d1b2d579adb832b44de31c91c875bbef7a8e397f5d183a746b54b"
+  },
+  {
+   "input": {
+    "n": 1.5e-7
+   },
+   "canonical": "{\"n\":1.5e-7}",
+   "sha256": "ca0289a96d48abcb7088cf5581aadc70f1caed9e151f42cda002d48e68277dd4"
+  },
+  {
+   "input": {
+    "n": 0.000001
+   },
+   "canonical": "{\"n\":0.000001}",
+   "sha256": "28343867a0be00aee19f81aa90cfd6c646878b9303fa15410d16bfd3f8894578"
+  },
+  {
+   "input": {
+    "n": 100000000000000000000
+   },
+   "canonical": "{\"n\":100000000000000000000}",
+   "sha256": "58d2d5b8dd4228ab5775ce84f996718fa19ed49872271e9649b70cebaca26a09"
+  },
+  {
+   "input": {
+    "n": 1e+21
+   },
+   "canonical": "{\"n\":1e+21}",
+   "sha256": "f1ee2b60ee95a3170fdc07a577e5f3514ced26867443d69da265acadead81007"
+  },
+  {
+   "input": {
+    "n": 1.2345e+21
+   },
+   "canonical": "{\"n\":1.2345e+21}",
+   "sha256": "986b4d23035300bf8f959eda8f7c0b99147b9da33b7c3a6d8a50f8c373a22e59"
+  },
+  {
+   "input": {
+    "n": 1.23e-18
+   },
+   "canonical": "{\"n\":1.23e-18}",
+   "sha256": "bd378100a003df3ecb73d100be0f5899a8e7e2857571fec3310a52adc9266224"
+  },
+  {
+   "input": {
+    "n": 5e-324
+   },
+   "canonical": "{\"n\":5e-324}",
+   "sha256": "cf4df7d2834198d284947133d3ec7a66f3d94e8d447cac6a0783324211b36d43"
+  },
+  {
+   "input": {
+    "n": 1.7976931348623157e+308
+   },
+   "canonical": "{\"n\":1.7976931348623157e+308}",
+   "sha256": "9599e0f9672bfa5d654b432fa5f9b7ee04f35c607b3a3ff01ce97b070f8f2648"
+  },
+  {
+   "input": {
+    "n": 4.35
+   },
+   "canonical": "{\"n\":4.35}",
+   "sha256": "4d4a0a5dafca032c6c56fb114ae533760af098410e30de3bd2c3f49527fc16ab"
+  },
+  {
+   "input": {
+    "n": 0.30000000000000004
+   },
+   "canonical": "{\"n\":0.30000000000000004}",
+   "sha256": "1d8a8e16d9ee625f1fb5ef505413efa212cc020b272ed0f9b3d3d81acf593fde"
+  },
+  {
+   "input": {
+    "n": 0.6666666666666666
+   },
+   "canonical": "{\"n\":0.6666666666666666}",
+   "sha256": "92190c009154c53ec9fb4b538288a9e2605406628f9b8119d1acc9162ab027dc"
+  },
+  {
+   "input": {
+    "n": 100.125
+   },
+   "canonical": "{\"n\":100.125}",
+   "sha256": "e54f9b69a11120db34c664a831e9ff25b60c31df5f512c199f468d0a3dcbac40"
+  },
+  {
+   "input": {
+    "n": 0.000001
+   },
+   "canonical": "{\"n\":0.000001}",
+   "sha256": "28343867a0be00aee19f81aa90cfd6c646878b9303fa15410d16bfd3f8894578"
+  },
+  {
+   "input": {
+    "n": 999999999999999900000
+   },
+   "canonical": "{\"n\":999999999999999900000}",
+   "sha256": "8e51b9a1b33e4815dbf02451cf409338b6c2e4eaa3399f5fa0b72d162e48dd6e"
+  },
+  {
+   "input": {
+    "2": 11,
+    "10": 10,
+    "id": 0,
+    "front": 1,
+    "back": 2,
+    "a": 3,
+    "b": 4,
+    "B": 5,
+    "_": 6,
+    "z": 7,
+    "é": 8,
+    "日": 9,
+    "aa": 12,
+    "a_b": 13,
+    "deleted_at": 14,
+    "𝔘": 15,
+    "￮": 16
+   },
+   "canonical": "{\"10\":10,\"2\":11,\"B\":5,\"_\":6,\"a\":3,\"a_b\":13,\"aa\":12,\"b\":4,\"back\":2,\"deleted_at\":14,\"front\":1,\"id\":0,\"z\":7,\"é\":8,\"日\":9,\"￮\":16,\"𝔘\":15}",
+   "sha256": "2171b2fec8fb9acd68c7e2052166d80b17648de0e2abc93e0739ee6c52c51d2d"
+  },
+  {
+   "input": {
+    "deleted_at": {
+     "id": 0.000001,
+     "b": [],
+     "aa": 1e-7
+    },
+    "𝔘": true,
+    "a_b": null,
+    "aa": "front :: back"
+   },
+   "canonical": "{\"a_b\":null,\"aa\":\"front :: back\",\"deleted_at\":{\"aa\":1e-7,\"b\":[],\"id\":0.000001},\"𝔘\":true}",
+   "sha256": "721194f0f932446aec0fcf10c8912b5de305e5e8157749234d4ca073eefe33ea"
+  },
+  {
+   "input": {
+    "_": [
+     {
+      "a": 0.30000000000000004
+     },
+     null
+    ],
+    "a_b": "emoji 😀 and 🇦🇺",
+    "￮": {
+     "￮": "$$x^2$$ and **bold**",
+     "é": {
+      "id": 5e-324
+     }
+    },
+    "aa": true,
+    "back": -9007199254740991
+   },
+   "canonical": "{\"_\":[{\"a\":0.30000000000000004},null],\"a_b\":\"emoji 😀 and 🇦🇺\",\"aa\":true,\"back\":-9007199254740991,\"￮\":{\"é\":{\"id\":5e-324},\"￮\":\"$$x^2$$ and **bold**\"}}",
+   "sha256": "cf64cb262aa0a24b9bbe281cd66ed0c973ae54553eb00bb1758b6c928010b9e3"
+  },
+  {
+   "input": {
+    "deleted_at": "front :: back",
+    "a_b": [],
+    "z": 0.000001,
+    "b": {
+     "2": [],
+     "back": "{{img:3f2a}}"
+    },
+    "￮": 9007199254740991
+   },
+   "canonical": "{\"a_b\":[],\"b\":{\"2\":[],\"back\":\"{{img:3f2a}}\"},\"deleted_at\":\"front :: back\",\"z\":0.000001,\"￮\":9007199254740991}",
+   "sha256": "0b485971c16d990e65cda5e31d883afb77d0418c092cacd639b3d0b2906c5684"
+  },
+  {
+   "input": {
+    "id": null,
+    "aa": " delete",
+    "é": null
+   },
+   "canonical": "{\"aa\":\" delete\",\"id\":null,\"é\":null}",
+   "sha256": "1fbc1773cd25ec36fb5c3b4e1dc3a6a51f6693ba7bfca229de48e664b2723ff3"
+  },
+  {
+   "input": {
+    "b": "tab\tnewline\nreturn\r",
+    "aa": "日本語"
+   },
+   "canonical": "{\"aa\":\"日本語\",\"b\":\"tab\\tnewline\\nreturn\\r\"}",
+   "sha256": "6cbc3792ac622dbe80aafc97a63004526fb178f67436f6dc34a6aee932aaaf96"
+  },
+  {
+   "input": {
+    "_": "日本語",
+    "日": true,
+    "aa": 4.35
+   },
+   "canonical": "{\"_\":\"日本語\",\"aa\":4.35,\"日\":true}",
+   "sha256": "aee0698e37510ec41abc0bbf2bb86d3f2ac637a5de697eb7615f54c4a84d5f33"
+  },
+  {
+   "input": {
+    "id": [
+     100.125,
+     5e-324,
+     -1
+    ],
+    "B": {
+     "back": 0.1
+    }
+   },
+   "canonical": "{\"B\":{\"back\":0.1},\"id\":[100.125,5e-324,-1]}",
+   "sha256": "62f4863fa74a182573a1023c0310d75659d9a160a3da6970256b1d6e277f14a5"
+  },
+  {
+   "input": {
+    "2": null,
+    "10": "slash / stays",
+    "𝔘": "backspace \b formfeed \f",
+    "_": -9007199254740991,
+    "日": [
+     "<img src=x onerror=alert(1)>",
+     {
+      "日": {
+       "aa": "tab\tnewline\nreturn\r",
+       "deleted_at": null
+      },
+      "front": [
+       null
+      ]
+     }
+    ]
+   },
+   "canonical": "{\"10\":\"slash / stays\",\"2\":null,\"_\":-9007199254740991,\"日\":[\"<img src=x onerror=alert(1)>\",{\"front\":[null],\"日\":{\"aa\":\"tab\\tnewline\\nreturn\\r\",\"deleted_at\":null}}],\"𝔘\":\"backspace \\b formfeed \\f\"}",
+   "sha256": "922cbae6da3fc847d9529207d675b0bd7903d70c7242d11b86b996ff24bc6fc7"
+  },
+  {
+   "input": {
+    "b": null,
+    "a": 1e+21,
+    "_": "",
+    "￮": "Hello, world",
+    "deleted_at": [
+     true,
+     {
+      "B": "quote \" and backslash \\",
+      "𝔘": "emoji 😀 and 🇦🇺"
+     }
+    ],
+    "a_b": []
+   },
+   "canonical": "{\"_\":\"\",\"a\":1e+21,\"a_b\":[],\"b\":null,\"deleted_at\":[true,{\"B\":\"quote \\\" and backslash \\\\\",\"𝔘\":\"emoji 😀 and 🇦🇺\"}],\"￮\":\"Hello, world\"}",
+   "sha256": "186c209aefc0cc0903ae22d0bcef7dcbf5b1c6a30591784674de8de90c893569"
+  },
+  {
+   "input": {
+    "日": "zero​width",
+    "deleted_at": [
+     [],
+     100000000000000000000,
+     0.000001
+    ],
+    "𝔘": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"deleted_at\":[[],100000000000000000000,0.000001],\"日\":\"zero​width\",\"𝔘\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "b8858b9e01e06104ba8abf61a714d6c0c7993cf9bec5669fd6507a46e04768e7"
+  },
+  {
+   "input": {
+    "2": -1,
+    "_": [
+     {
+      "￮": "perro <-> dog"
+     }
+    ],
+    "é": "{{img:3f2a}}",
+    "deleted_at": null,
+    "b": false,
+    "z": null
+   },
+   "canonical": "{\"2\":-1,\"_\":[{\"￮\":\"perro <-> dog\"}],\"b\":false,\"deleted_at\":null,\"z\":null,\"é\":\"{{img:3f2a}}\"}",
+   "sha256": "035bc8af813d5be04102bb49ec0b654a64f35c659edf0b58921a927e4fb3874c"
+  },
+  {
+   "input": {
+    "10": {},
+    "b": [
+     "zero​width",
+     "{{img:3f2a}}"
+    ],
+    "B": {
+     "10": 0,
+     "b": "Hello, world",
+     "a_b": 1
+    },
+    "a_b": [
+     1000000
+    ],
+    "id": "日本語"
+   },
+   "canonical": "{\"10\":{},\"B\":{\"10\":0,\"a_b\":1,\"b\":\"Hello, world\"},\"a_b\":[1000000],\"b\":[\"zero​width\",\"{{img:3f2a}}\"],\"id\":\"日本語\"}",
+   "sha256": "f1161c25b46dcfa7f823c4a5e16f9d8798260a7cb85d1ade2eb6e432ca01624d"
+  },
+  {
+   "input": {
+    "a": {}
+   },
+   "canonical": "{\"a\":{}}",
+   "sha256": "5d8171b9fc362e385a79ccd9d7992c96bcb4afca51d6278068bd1df49863b3a7"
+  },
+  {
+   "input": {
+    "10": "zero​width",
+    "front": {
+     "a_b": {
+      "id": {
+       "front": true,
+       "B": "",
+       "b": "emoji 😀 and 🇦🇺",
+       "a_b": "control \u0001\u001f\u0000"
+      },
+      "z": {
+       "2": "$$x^2$$ and **bold**",
+       "a": "emoji 😀 and 🇦🇺",
+       "￮": "Hello, world"
+      },
+      "deleted_at": "$$x^2$$ and **bold**",
+      "back": "quote \" and backslash \\"
+     }
+    }
+   },
+   "canonical": "{\"10\":\"zero​width\",\"front\":{\"a_b\":{\"back\":\"quote \\\" and backslash \\\\\",\"deleted_at\":\"$$x^2$$ and **bold**\",\"id\":{\"B\":\"\",\"a_b\":\"control \\u0001\\u001f\\u0000\",\"b\":\"emoji 😀 and 🇦🇺\",\"front\":true},\"z\":{\"2\":\"$$x^2$$ and **bold**\",\"a\":\"emoji 😀 and 🇦🇺\",\"￮\":\"Hello, world\"}}}}",
+   "sha256": "6fb0beb94f2d2be8fd221727cff6d77b0bea0f39119fd11006da9c409f11f33f"
+  },
+  {
+   "input": {
+    "a": null,
+    "é": {
+     "10": "control \u0001\u001f\u0000",
+     "B": null,
+     "id": true,
+     "_": "front :: back"
+    },
+    "B": {
+     "front": "backspace \b formfeed \f",
+     "日": {
+      "2": "日本語",
+      "a": true,
+      "𝔘": "quote \" and backslash \\",
+      "back": 0.1
+     },
+     "a_b": "emoji 😀 and 🇦🇺"
+    },
+    "front": true
+   },
+   "canonical": "{\"B\":{\"a_b\":\"emoji 😀 and 🇦🇺\",\"front\":\"backspace \\b formfeed \\f\",\"日\":{\"2\":\"日本語\",\"a\":true,\"back\":0.1,\"𝔘\":\"quote \\\" and backslash \\\\\"}},\"a\":null,\"front\":true,\"é\":{\"10\":\"control \\u0001\\u001f\\u0000\",\"B\":null,\"_\":\"front :: back\",\"id\":true}}",
+   "sha256": "766c5ac8fd08758065c6a4addb88ca9259b67773235d29e219621c3998265c2a"
+  },
+  {
+   "input": {
+    "back": 999999999999999900000,
+    "a": "front :: back"
+   },
+   "canonical": "{\"a\":\"front :: back\",\"back\":999999999999999900000}",
+   "sha256": "b15cb4b7416b5c0e9c8c333f612b2ca27675c8c96a257affa8547c5d2ed4b890"
+  },
+  {
+   "input": {
+    "deleted_at": "perro <-> dog",
+    "aa": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"aa\":\"$$x^2$$ and **bold**\",\"deleted_at\":\"perro <-> dog\"}",
+   "sha256": "5f8f59d3e05e2da4bb301bafc3065fb3e29d9f3ac775a5159f01e8ec30ffe6be"
+  },
+  {
+   "input": {
+    "10": "Hello, world",
+    "back": "𝔘𝔫",
+    "b": [],
+    "id": 0.30000000000000004
+   },
+   "canonical": "{\"10\":\"Hello, world\",\"b\":[],\"back\":\"𝔘𝔫\",\"id\":0.30000000000000004}",
+   "sha256": "375fa6317302b2a79a283623b26f70712e177b97e656bfe282c1995a9215914f"
+  },
+  {
+   "input": {
+    "2": false,
+    "日": {
+     "id": null,
+     "aa": "𝔘𝔫",
+     "deleted_at": [
+      null,
+      "a"
+     ]
+    },
+    "deleted_at": 4.35,
+    "b": 999999999999999900000,
+    "_": "é accent",
+    "z": " line sep "
+   },
+   "canonical": "{\"2\":false,\"_\":\"é accent\",\"b\":999999999999999900000,\"deleted_at\":4.35,\"z\":\" line sep \",\"日\":{\"aa\":\"𝔘𝔫\",\"deleted_at\":[null,\"a\"],\"id\":null}}",
+   "sha256": "8a63bce9cc366b3a3230364620fe72d2714c65a56d91de15d979e7d6de8725ed"
+  },
+  {
+   "input": {
+    "a": null,
+    "日": " line sep ",
+    "back": 1.5e-7
+   },
+   "canonical": "{\"a\":null,\"back\":1.5e-7,\"日\":\" line sep \"}",
+   "sha256": "297e7975b3c08127a5ec9eeccbe5c9fc339814251898a1128762d8bbe66d333c"
+  },
+  {
+   "input": {
+    "_": null,
+    "deleted_at": 0.5,
+    "é": null,
+    "𝔘": "a",
+    "id": {
+     "deleted_at": "zero​width",
+     "𝔘": null,
+     "z": "$$x^2$$ and **bold**",
+     "B": {
+      "日": "control \u0001\u001f\u0000",
+      "𝔘": null,
+      "_": true,
+      "z": "<img src=x onerror=alert(1)>"
+     }
+    }
+   },
+   "canonical": "{\"_\":null,\"deleted_at\":0.5,\"id\":{\"B\":{\"_\":true,\"z\":\"<img src=x onerror=alert(1)>\",\"日\":\"control \\u0001\\u001f\\u0000\",\"𝔘\":null},\"deleted_at\":\"zero​width\",\"z\":\"$$x^2$$ and **bold**\",\"𝔘\":null},\"é\":null,\"𝔘\":\"a\"}",
+   "sha256": "0b284cd243cb5872af45a4db65133ac3dbe8de57af1e29752fea152e5969fadf"
+  },
+  {
+   "input": {
+    "2": " line sep ",
+    "b": null,
+    "_": true,
+    "aa": [
+     [
+      [
+       0.000001
+      ]
+     ],
+     "<img src=x onerror=alert(1)>",
+     "perro <-> dog"
+    ]
+   },
+   "canonical": "{\"2\":\" line sep \",\"_\":true,\"aa\":[[[0.000001]],\"<img src=x onerror=alert(1)>\",\"perro <-> dog\"],\"b\":null}",
+   "sha256": "6414afb3b968e5a3605a09486f10aec62bcb2ed3bd2f79cab6d87b21954ce3c6"
+  },
+  {
+   "input": {
+    "aa": null,
+    "front": "<img src=x onerror=alert(1)>",
+    "￮": null
+   },
+   "canonical": "{\"aa\":null,\"front\":\"<img src=x onerror=alert(1)>\",\"￮\":null}",
+   "sha256": "bd3de63f5b72ff6680668f41767c6cee770e3b6a0cc2d4442c419456a0e84047"
+  },
+  {
+   "input": {
+    "𝔘": "emoji 😀 and 🇦🇺",
+    "￮": false,
+    "日": "quote \" and backslash \\",
+    "a": [],
+    "a_b": null,
+    "é": []
+   },
+   "canonical": "{\"a\":[],\"a_b\":null,\"é\":[],\"日\":\"quote \\\" and backslash \\\\\",\"￮\":false,\"𝔘\":\"emoji 😀 and 🇦🇺\"}",
+   "sha256": "26a5ad64865021b69ede2cf8c70761b9ea05da86c0a06c43e81f8551ed826ea6"
+  },
+  {
+   "input": {
+    "front": null,
+    "z": false,
+    "id": false
+   },
+   "canonical": "{\"front\":null,\"id\":false,\"z\":false}",
+   "sha256": "a1aac521f365b73bf78eb8330218ba45f3a3369211ead1dfa1bb35700898bb15"
+  },
+  {
+   "input": {
+    "2": [],
+    "id": {
+     "B": "$$x^2$$ and **bold**",
+     "a": "perro <-> dog"
+    }
+   },
+   "canonical": "{\"2\":[],\"id\":{\"B\":\"$$x^2$$ and **bold**\",\"a\":\"perro <-> dog\"}}",
+   "sha256": "5ff165737134b497dbc6d8b487d25b4f2b260b1121355e24dc18e1df51e639a0"
+  },
+  {
+   "input": {
+    "2": "日本語"
+   },
+   "canonical": "{\"2\":\"日本語\"}",
+   "sha256": "a4e7ef5d145d8ad65f7f4de5371ef99a41546e108f161bdb18d7046f6d580923"
+  },
+  {
+   "input": {
+    "日": null,
+    "B": [],
+    "a": null
+   },
+   "canonical": "{\"B\":[],\"a\":null,\"日\":null}",
+   "sha256": "d9a40dcfc7c69907057a8731a6b2fdc816bfa168324aea929d9e1289150f5a42"
+  },
+  {
+   "input": {
+    "𝔘": null
+   },
+   "canonical": "{\"𝔘\":null}",
+   "sha256": "0ea32c5f689d3b143103957c2f607d7bc4a416a72ffc2bbdd4e2ca3160742411"
+  },
+  {
+   "input": {
+    "aa": [
+     "backspace \b formfeed \f",
+     {},
+     "backspace \b formfeed \f"
+    ],
+    "z": null,
+    "id": "Hello, world",
+    "𝔘": "𝔘𝔫"
+   },
+   "canonical": "{\"aa\":[\"backspace \\b formfeed \\f\",{},\"backspace \\b formfeed \\f\"],\"id\":\"Hello, world\",\"z\":null,\"𝔘\":\"𝔘𝔫\"}",
+   "sha256": "1bdab5005c3879179b8bd40f351978a9069d76d1a9d0113776704e090da9735b"
+  },
+  {
+   "input": {
+    "B": "a",
+    "deleted_at": [
+     0.5
+    ],
+    "_": null,
+    "a_b": "emoji 😀 and 🇦🇺"
+   },
+   "canonical": "{\"B\":\"a\",\"_\":null,\"a_b\":\"emoji 😀 and 🇦🇺\",\"deleted_at\":[0.5]}",
+   "sha256": "c726982a33cb5fce7c93d2a050761e7c685c2d7eb67a3429fee5c48cdee1c2f9"
+  },
+  {
+   "input": {
+    "back": "front :: back",
+    "id": "a",
+    "日": []
+   },
+   "canonical": "{\"back\":\"front :: back\",\"id\":\"a\",\"日\":[]}",
+   "sha256": "4f6f67d4f2b48174056057b775832c3a88cbf5a6e42e402e41d02bfb63761aed"
+  },
+  {
+   "input": {
+    "2": "{{img:3f2a}}",
+    "deleted_at": 7,
+    "a_b": " delete",
+    "aa": "control \u0001\u001f\u0000",
+    "￮": [
+     1e+21,
+     "",
+     [
+      [],
+      "é accent",
+      false
+     ]
+    ]
+   },
+   "canonical": "{\"2\":\"{{img:3f2a}}\",\"a_b\":\" delete\",\"aa\":\"control \\u0001\\u001f\\u0000\",\"deleted_at\":7,\"￮\":[1e+21,\"\",[[],\"é accent\",false]]}",
+   "sha256": "1fdcc9fdc31e92126fe886f3bfd5058679fdecc05a81e483186e74f5b4a3e811"
+  },
+  {
+   "input": {
+    "10": false,
+    "deleted_at": false,
+    "back": null,
+    "_": null
+   },
+   "canonical": "{\"10\":false,\"_\":null,\"back\":null,\"deleted_at\":false}",
+   "sha256": "b2cad9b10e63f278cc21a83f4be077ddf411e8a83617736ef08bbca50362f4bb"
+  },
+  {
+   "input": {
+    "2": null,
+    "B": false,
+    "a": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"2\":null,\"B\":false,\"a\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "16e0a9dfb6037e41e4e93afab3e1aa94ac550f19b920b358b6a31bf094ad87dd"
+  },
+  {
+   "input": {
+    "id": false,
+    "a_b": 1.7976931348623157e+308,
+    "z": null,
+    "aa": "perro <-> dog",
+    "deleted_at": false
+   },
+   "canonical": "{\"a_b\":1.7976931348623157e+308,\"aa\":\"perro <-> dog\",\"deleted_at\":false,\"id\":false,\"z\":null}",
+   "sha256": "19a7dd2d083a4f0cfe2c81004a5b9c34f4d4b0687701e4adc18ba33eb5cf8b84"
+  },
+  {
+   "input": {
+    "id": "a"
+   },
+   "canonical": "{\"id\":\"a\"}",
+   "sha256": "8489a5deb454a360345c7868bca8672de92b446caf3d3b014af6a56e3d549d30"
+  },
+  {
+   "input": {
+    "2": null,
+    "10": {
+     "10": "control \u0001\u001f\u0000",
+     "back": true,
+     "_": null,
+     "a": 12.000000001
+    },
+    "a": {
+     "10": 0.6666666666666666,
+     "aa": {},
+     "z": [
+      "perro <-> dog",
+      {},
+      "é accent"
+     ],
+     "é": {
+      "10": null,
+      "é": false
+     }
+    },
+    "￮": "quote \" and backslash \\",
+    "id": "日本語"
+   },
+   "canonical": "{\"10\":{\"10\":\"control \\u0001\\u001f\\u0000\",\"_\":null,\"a\":12.000000001,\"back\":true},\"2\":null,\"a\":{\"10\":0.6666666666666666,\"aa\":{},\"z\":[\"perro <-> dog\",{},\"é accent\"],\"é\":{\"10\":null,\"é\":false}},\"id\":\"日本語\",\"￮\":\"quote \\\" and backslash \\\\\"}",
+   "sha256": "4ce4be46f7a9bef2d40552d4620f2ed886e8197a88f62ab2ff88c4fe4adc205d"
+  },
+  {
+   "input": {
+    "10": "<img src=x onerror=alert(1)>",
+    "￮": {
+     "aa": 0
+    },
+    "_": null,
+    "deleted_at": [],
+    "id": false
+   },
+   "canonical": "{\"10\":\"<img src=x onerror=alert(1)>\",\"_\":null,\"deleted_at\":[],\"id\":false,\"￮\":{\"aa\":0}}",
+   "sha256": "267ab98aba4192e1786e18770268b34e755b9c0f9a00380a6163472bc35dc60b"
+  },
+  {
+   "input": {
+    "aa": false,
+    "z": "a",
+    "a_b": {
+     "aa": [
+      "backspace \b formfeed \f",
+      null,
+      0.000001
+     ],
+     "back": "slash / stays"
+    },
+    "￮": {
+     "￮": "Hello, world"
+    },
+    "日": "é accent"
+   },
+   "canonical": "{\"a_b\":{\"aa\":[\"backspace \\b formfeed \\f\",null,0.000001],\"back\":\"slash / stays\"},\"aa\":false,\"z\":\"a\",\"日\":\"é accent\",\"￮\":{\"￮\":\"Hello, world\"}}",
+   "sha256": "67787c63725f6c0c1eb7c342fa660f17893566b8415162347dc0a3249226e44e"
+  },
+  {
+   "input": {
+    "￮": 4.35
+   },
+   "canonical": "{\"￮\":4.35}",
+   "sha256": "aa90d2ed8469f6070585ba8e1dd393eee676574837cc63b906537f2fa6b5fbf5"
+  },
+  {
+   "input": {
+    "aa": {
+     "back": 7,
+     "z": "",
+     "a": false
+    }
+   },
+   "canonical": "{\"aa\":{\"a\":false,\"back\":7,\"z\":\"\"}}",
+   "sha256": "65264c115ab48294ba9af75170fc2492e5f7d619f764e433ea9325271975616a"
+  },
+  {
+   "input": {
+    "z": [
+     [],
+     "perro <-> dog",
+     {
+      "back": null
+     }
+    ],
+    "_": null,
+    "back": " line sep ",
+    "deleted_at": {},
+    "a": "a"
+   },
+   "canonical": "{\"_\":null,\"a\":\"a\",\"back\":\" line sep \",\"deleted_at\":{},\"z\":[[],\"perro <-> dog\",{\"back\":null}]}",
+   "sha256": "ea826604ebadd82c010a823f0fea4eafd32ae0ea36767cb5700245ed98ea1c4e"
+  },
+  {
+   "input": {
+    "￮": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"￮\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "fab9d4da3a5954a59eb62f9a65e1840d6083747744fbe4bf2de4e65624aa6912"
+  },
+  {
+   "input": {
+    "2": "<img src=x onerror=alert(1)>",
+    "B": 5e-324,
+    "_": 1e+21,
+    "z": true
+   },
+   "canonical": "{\"2\":\"<img src=x onerror=alert(1)>\",\"B\":5e-324,\"_\":1e+21,\"z\":true}",
+   "sha256": "c223658d07a8b637ae342233821d6a0b5d0d7de080757f3680ead5a5571db020"
+  },
+  {
+   "input": {
+    "2": "{{img:3f2a}}",
+    "￮": "zero​width",
+    "b": false,
+    "a_b": false
+   },
+   "canonical": "{\"2\":\"{{img:3f2a}}\",\"a_b\":false,\"b\":false,\"￮\":\"zero​width\"}",
+   "sha256": "863f00965e1682b4b87061220c820e9bbcb959126955ed0f8bfeef1bd5b5ca83"
+  },
+  {
+   "input": {
+    "id": " line sep ",
+    "deleted_at": 1.7976931348623157e+308
+   },
+   "canonical": "{\"deleted_at\":1.7976931348623157e+308,\"id\":\" line sep \"}",
+   "sha256": "939f9afc288e5bb6e666a8df06728831f8edd4d54d4ce0f0ecf794e80f359439"
+  },
+  {
+   "input": {
+    "z": "slash / stays",
+    "aa": 1.2345e+21,
+    "front": "control \u0001\u001f\u0000",
+    "back": 12.000000001,
+    "日": null
+   },
+   "canonical": "{\"aa\":1.2345e+21,\"back\":12.000000001,\"front\":\"control \\u0001\\u001f\\u0000\",\"z\":\"slash / stays\",\"日\":null}",
+   "sha256": "18fb2cfb17efb7fa509de9929384a35a40172cdb6de821dbff80b5d589b46d4b"
+  },
+  {
+   "input": {
+    "a_b": {}
+   },
+   "canonical": "{\"a_b\":{}}",
+   "sha256": "10e9e3a23df6e148d2f6a520f2253a26e7b1161a14f426766d9436e125bde379"
+  },
+  {
+   "input": {
+    "日": {
+     "deleted_at": "Hello, world",
+     "id": {
+      "10": {
+       "10": "control \u0001\u001f\u0000"
+      },
+      "é": "Hello, world",
+      "front": [
+       0.000001,
+       -9007199254740991
+      ],
+      "_": 42
+     },
+     "back": null
+    },
+    "front": [],
+    "id": []
+   },
+   "canonical": "{\"front\":[],\"id\":[],\"日\":{\"back\":null,\"deleted_at\":\"Hello, world\",\"id\":{\"10\":{\"10\":\"control \\u0001\\u001f\\u0000\"},\"_\":42,\"front\":[0.000001,-9007199254740991],\"é\":\"Hello, world\"}}}",
+   "sha256": "8d2db88d9dd036d9185ae3e3fd7324e7d9c4a60f58052e3b51aec21d1e7fd2d9"
+  },
+  {
+   "input": {
+    "10": {
+     "_": "control \u0001\u001f\u0000",
+     "front": null,
+     "aa": [],
+     "𝔘": {
+      "2": null,
+      "B": "é accent",
+      "𝔘": null
+     }
+    },
+    "back": null,
+    "B": null,
+    "a_b": null,
+    "aa": true,
+    "a": "zero​width"
+   },
+   "canonical": "{\"10\":{\"_\":\"control \\u0001\\u001f\\u0000\",\"aa\":[],\"front\":null,\"𝔘\":{\"2\":null,\"B\":\"é accent\",\"𝔘\":null}},\"B\":null,\"a\":\"zero​width\",\"a_b\":null,\"aa\":true,\"back\":null}",
+   "sha256": "d9c19658d868b733be04af3404915c02b9b69108108d5b20d0bc56aa72358d44"
+  },
+  {
+   "input": {
+    "deleted_at": 999999999999999900000,
+    "front": [
+     null
+    ],
+    "_": [],
+    "id": {
+     "B": {},
+     "z": "𝔘𝔫"
+    },
+    "𝔘": {
+     "10": true
+    }
+   },
+   "canonical": "{\"_\":[],\"deleted_at\":999999999999999900000,\"front\":[null],\"id\":{\"B\":{},\"z\":\"𝔘𝔫\"},\"𝔘\":{\"10\":true}}",
+   "sha256": "b9df7a8075184d423dbc403d8ec36a37f50435c12a67297c068e178086952512"
+  },
+  {
+   "input": {
+    "10": null,
+    "b": 100000000000000000000,
+    "a_b": "quote \" and backslash \\",
+    "aa": 100000000000000000000
+   },
+   "canonical": "{\"10\":null,\"a_b\":\"quote \\\" and backslash \\\\\",\"aa\":100000000000000000000,\"b\":100000000000000000000}",
+   "sha256": "89cb554a452a4e6f5724a4d549334c7a6661ece1042e0396e5ac97df65060e7a"
+  },
+  {
+   "input": {
+    "𝔘": null,
+    "back": "日本語",
+    "_": {
+     "𝔘": "<img src=x onerror=alert(1)>",
+     "￮": "𝔘𝔫",
+     "back": [
+      null,
+      [
+       "",
+       "perro <-> dog"
+      ],
+      "slash / stays"
+     ]
+    },
+    "id": null,
+    "B": null
+   },
+   "canonical": "{\"B\":null,\"_\":{\"back\":[null,[\"\",\"perro <-> dog\"],\"slash / stays\"],\"￮\":\"𝔘𝔫\",\"𝔘\":\"<img src=x onerror=alert(1)>\"},\"back\":\"日本語\",\"id\":null,\"𝔘\":null}",
+   "sha256": "75de818656daef63a71dc9bad3aff69191301744e2537ad4954074edad300a28"
+  },
+  {
+   "input": {
+    "back": null,
+    "id": 0.5,
+    "aa": null,
+    "_": true,
+    "deleted_at": 100000000000000000000
+   },
+   "canonical": "{\"_\":true,\"aa\":null,\"back\":null,\"deleted_at\":100000000000000000000,\"id\":0.5}",
+   "sha256": "c2a4a3dc732b3e742e2ffb018fdc8cd6b31b6b3fc1469fd5747b1f8c991b4ba8"
+  },
+  {
+   "input": {
+    "aa": null,
+    "a": {
+     "a": "zero​width"
+    },
+    "back": false,
+    "B": null
+   },
+   "canonical": "{\"B\":null,\"a\":{\"a\":\"zero​width\"},\"aa\":null,\"back\":false}",
+   "sha256": "4044349582bcda769da38e581d18471832e947a8c74074381196633530929705"
+  },
+  {
+   "input": {
+    "front": 3.2847123,
+    "_": "{{img:3f2a}}",
+    "￮": null,
+    "aa": "quote \" and backslash \\",
+    "𝔘": 1.2345e+21
+   },
+   "canonical": "{\"_\":\"{{img:3f2a}}\",\"aa\":\"quote \\\" and backslash \\\\\",\"front\":3.2847123,\"￮\":null,\"𝔘\":1.2345e+21}",
+   "sha256": "80bc929978f74d84a3899718e2caf534726c0149001bd554507a1016e7402b9a"
+  },
+  {
+   "input": {
+    "a": {
+     "_": [
+      {
+       "2": 1.5e-7,
+       "a_b": "perro <-> dog",
+       "deleted_at": false
+      },
+      "emoji 😀 and 🇦🇺"
+     ],
+     "aa": null,
+     "front": " line sep ",
+     "￮": [
+      true,
+      [
+       true,
+       null
+      ],
+      {
+       "deleted_at": "control \u0001\u001f\u0000"
+      }
+     ]
+    },
+    "aa": 1e-7,
+    "z": null,
+    "a_b": 12.000000001
+   },
+   "canonical": "{\"a\":{\"_\":[{\"2\":1.5e-7,\"a_b\":\"perro <-> dog\",\"deleted_at\":false},\"emoji 😀 and 🇦🇺\"],\"aa\":null,\"front\":\" line sep \",\"￮\":[true,[true,null],{\"deleted_at\":\"control \\u0001\\u001f\\u0000\"}]},\"a_b\":12.000000001,\"aa\":1e-7,\"z\":null}",
+   "sha256": "c0a598e0e608eabb49d49047c05e6c66fdf3084b4fd71ce3792dc2e29c0c42c5"
+  },
+  {
+   "input": {
+    "deleted_at": {
+     "2": "perro <-> dog",
+     "日": 0.1,
+     "aa": "𝔘𝔫",
+     "𝔘": "日本語"
+    }
+   },
+   "canonical": "{\"deleted_at\":{\"2\":\"perro <-> dog\",\"aa\":\"𝔘𝔫\",\"日\":0.1,\"𝔘\":\"日本語\"}}",
+   "sha256": "7bdc599f77446e5d27565ad60503b1eac425e11ef8dc3a359b7dbd4efc6bdebf"
+  },
+  {
+   "input": {
+    "B": {
+     "2": "{{img:3f2a}}",
+     "id": "<img src=x onerror=alert(1)>"
+    }
+   },
+   "canonical": "{\"B\":{\"2\":\"{{img:3f2a}}\",\"id\":\"<img src=x onerror=alert(1)>\"}}",
+   "sha256": "96145ca6bb5e46a149ac410f0aa4243e46123899efddea221989e414884c7482"
+  },
+  {
+   "input": {
+    "2": true,
+    "10": null,
+    "a": [
+     "control \u0001\u001f\u0000",
+     true
+    ]
+   },
+   "canonical": "{\"10\":null,\"2\":true,\"a\":[\"control \\u0001\\u001f\\u0000\",true]}",
+   "sha256": "cecc06439eff5369206e1607ce5d0f8503fd90bfa0923622d738c19f2166002d"
+  },
+  {
+   "input": {
+    "10": true
+   },
+   "canonical": "{\"10\":true}",
+   "sha256": "bd3be0ecda104e84d7ccf33790e785f982b7d895eec612f8684f2b400cf3396b"
+  },
+  {
+   "input": {
+    "10": "a",
+    "front": "é accent"
+   },
+   "canonical": "{\"10\":\"a\",\"front\":\"é accent\"}",
+   "sha256": "18ef3f282349e9fc8760f4207089be7130d2c9090685460f9c54be300cab4af1"
+  },
+  {
+   "input": {
+    "𝔘": true,
+    "日": {
+     "2": null,
+     "_": "𝔘𝔫",
+     "back": true
+    },
+    "back": null
+   },
+   "canonical": "{\"back\":null,\"日\":{\"2\":null,\"_\":\"𝔘𝔫\",\"back\":true},\"𝔘\":true}",
+   "sha256": "a8d64b85e7c3e058ac00dbabd64ba1064a16ac184f154bea906ffdb9bf37382a"
+  },
+  {
+   "input": {
+    "a_b": "日本語",
+    "back": null,
+    "b": false,
+    "_": null,
+    "aa": 0
+   },
+   "canonical": "{\"_\":null,\"a_b\":\"日本語\",\"aa\":0,\"b\":false,\"back\":null}",
+   "sha256": "363ef0c4deb454976bf7fe401ab536108cac1078f6765c16120b0a017acb9a14"
+  },
+  {
+   "input": {
+    "aa": [
+     "backspace \b formfeed \f"
+    ],
+    "𝔘": "zero​width",
+    "back": "quote \" and backslash \\"
+   },
+   "canonical": "{\"aa\":[\"backspace \\b formfeed \\f\"],\"back\":\"quote \\\" and backslash \\\\\",\"𝔘\":\"zero​width\"}",
+   "sha256": "abca8db5a7ea8865f9846c6db905bcaf9eac922e3374a0c864238004c8ef3866"
+  },
+  {
+   "input": {
+    "10": " delete"
+   },
+   "canonical": "{\"10\":\" delete\"}",
+   "sha256": "dcae15e9864663e3850f9b3955c30372edb55702f0889c3ce61f51df9aded91e"
+  },
+  {
+   "input": {
+    "￮": 100.125,
+    "b": 999999999999999900000,
+    "front": true,
+    "_": 42,
+    "id": null
+   },
+   "canonical": "{\"_\":42,\"b\":999999999999999900000,\"front\":true,\"id\":null,\"￮\":100.125}",
+   "sha256": "688a3eb997a7f27c1a98a4867dc13877908ccb3bfd417e35c69b77da59bd6d80"
+  },
+  {
+   "input": {
+    "𝔘": {
+     "deleted_at": null
+    }
+   },
+   "canonical": "{\"𝔘\":{\"deleted_at\":null}}",
+   "sha256": "d57c27841cd508100f11ff5d4c08a63d8fdda0334b60843940a302645885e0ef"
+  },
+  {
+   "input": {
+    "_": {
+     "￮": false,
+     "日": "é accent"
+    },
+    "𝔘": true
+   },
+   "canonical": "{\"_\":{\"日\":\"é accent\",\"￮\":false},\"𝔘\":true}",
+   "sha256": "7ce33a1948f56d26c58a10c0d475e69d80324e10b055f7931eeb35dd6f087968"
+  },
+  {
+   "input": {
+    "2": 7,
+    "日": true,
+    "B": null
+   },
+   "canonical": "{\"2\":7,\"B\":null,\"日\":true}",
+   "sha256": "b4b1e97872b022d1b4de21b4d2db2647471af2d81b87496161c2a9a8e68ac1c2"
+  },
+  {
+   "input": {
+    "front": null
+   },
+   "canonical": "{\"front\":null}",
+   "sha256": "67bfff8663fce52a8aa2995f74ebb246dc6f7368ce3a9aadb39c93d9cbc89c66"
+  },
+  {
+   "input": {
+    "2": null,
+    "𝔘": null,
+    "a": false,
+    "￮": true
+   },
+   "canonical": "{\"2\":null,\"a\":false,\"￮\":true,\"𝔘\":null}",
+   "sha256": "442e2063fe472cb0820fe93f1a8f3f692ae47b74903b7c6ad28e86cdc075b60a"
+  },
+  {
+   "input": {
+    "aa": "<img src=x onerror=alert(1)>"
+   },
+   "canonical": "{\"aa\":\"<img src=x onerror=alert(1)>\"}",
+   "sha256": "b40e95c9e304d6fe9ab83b603d1deed62fb49f96dc468168d74117a324539d6f"
+  },
+  {
+   "input": {
+    "2": "control \u0001\u001f\u0000",
+    "front": null,
+    "￮": 5e-324,
+    "back": [
+     false,
+     [
+      " line sep "
+     ]
+    ]
+   },
+   "canonical": "{\"2\":\"control \\u0001\\u001f\\u0000\",\"back\":[false,[\" line sep \"]],\"front\":null,\"￮\":5e-324}",
+   "sha256": "050b37c34dc6500b8b5bfd24549e7321039e8d3035bccf2f18d2d0332798d18e"
+  },
+  {
+   "input": {
+    "front": null,
+    "𝔘": [
+     "é accent",
+     {},
+     [
+      "{{img:3f2a}}"
+     ]
+    ]
+   },
+   "canonical": "{\"front\":null,\"𝔘\":[\"é accent\",{},[\"{{img:3f2a}}\"]]}",
+   "sha256": "914ec1df92838a6e1651c0e498faae02ec09f5f26496c1c9da2ffd29626de06d"
+  },
+  {
+   "input": {
+    "2": [
+     "𝔘𝔫",
+     true,
+     7
+    ],
+    "id": {}
+   },
+   "canonical": "{\"2\":[\"𝔘𝔫\",true,7],\"id\":{}}",
+   "sha256": "b91d6ae67ca18e40985572601097f85956f26eb28e69435271122b5e68d3acd7"
+  },
+  {
+   "input": {
+    "deleted_at": null,
+    "front": true,
+    "aa": 5e-324
+   },
+   "canonical": "{\"aa\":5e-324,\"deleted_at\":null,\"front\":true}",
+   "sha256": "18954390b5eeb899cab18d51bda60b7fb24cd96670e4c9156b865252083c3bb6"
+  },
+  {
+   "input": {
+    "a": "tab\tnewline\nreturn\r",
+    "a_b": 100000000000000000000,
+    "id": true,
+    "back": 999999999999999900000,
+    "日": 1.5e-7
+   },
+   "canonical": "{\"a\":\"tab\\tnewline\\nreturn\\r\",\"a_b\":100000000000000000000,\"back\":999999999999999900000,\"id\":true,\"日\":1.5e-7}",
+   "sha256": "daeb16db53c9d58011d2741090df195a3d6bc98adff3c160483e2813c2f2412e"
+  },
+  {
+   "input": {
+    "10": [
+     true
+    ],
+    "_": 1.7976931348623157e+308
+   },
+   "canonical": "{\"10\":[true],\"_\":1.7976931348623157e+308}",
+   "sha256": "68065e78c282ea6eddd26d935b57c37904393504c21a28ceedee92488742f0a4"
+  },
+  {
+   "input": {
+    "_": " delete",
+    "deleted_at": null,
+    "a": null,
+    "z": -9007199254740991,
+    "aa": "Hello, world"
+   },
+   "canonical": "{\"_\":\" delete\",\"a\":null,\"aa\":\"Hello, world\",\"deleted_at\":null,\"z\":-9007199254740991}",
+   "sha256": "df8d0fa016c59f9b0305b49853c5e33945df059af78b86fad49216bc56cc52ca"
+  },
+  {
+   "input": {
+    "id": 5e-324
+   },
+   "canonical": "{\"id\":5e-324}",
+   "sha256": "9a7cb060020bc0d66d609739f307d66c6e3ae8bb0353a474b150df6dd4baaf09"
+  },
+  {
+   "input": {
+    "日": true,
+    "deleted_at": {
+     "aa": true
+    },
+    "aa": {}
+   },
+   "canonical": "{\"aa\":{},\"deleted_at\":{\"aa\":true},\"日\":true}",
+   "sha256": "c56fd4bc84a340aef1babad2239e2e1d104c4e72b796327f400d9147f5f79aa3"
+  },
+  {
+   "input": {
+    "z": [
+     -2.25,
+     1000000,
+     "𝔘𝔫"
+    ]
+   },
+   "canonical": "{\"z\":[-2.25,1000000,\"𝔘𝔫\"]}",
+   "sha256": "b560deced1fc6c966bf378f19ed6bf768895040fe63d0bafba06ba58c78f888f"
+  },
+  {
+   "input": {
+    "10": [
+     "backspace \b formfeed \f"
+    ],
+    "front": 3.2847123,
+    "aa": {},
+    "_": 1e-7
+   },
+   "canonical": "{\"10\":[\"backspace \\b formfeed \\f\"],\"_\":1e-7,\"aa\":{},\"front\":3.2847123}",
+   "sha256": "160d6e13e7c7c7c1994e758b58e1679906b643cc4931b6c3c3c34b7a040a6c27"
+  },
+  {
+   "input": {
+    "￮": false,
+    "_": "",
+    "z": [
+     {
+      "日": [
+       1e+21
+      ],
+      "id": "é accent",
+      "a_b": {
+       "z": false,
+       "deleted_at": false
+      }
+     }
+    ],
+    "a": -2.25
+   },
+   "canonical": "{\"_\":\"\",\"a\":-2.25,\"z\":[{\"a_b\":{\"deleted_at\":false,\"z\":false},\"id\":\"é accent\",\"日\":[1e+21]}],\"￮\":false}",
+   "sha256": "1f09a7895b8294615a16acb73824d0bcff01d838b35d753f01d17e34ea5c4e91"
+  },
+  {
+   "input": {
+    "id": [
+     1e-7,
+     4.35,
+     [
+      [
+       1.2345e+21,
+       100.125
+      ],
+      [
+       "<img src=x onerror=alert(1)>",
+       -2.25,
+       9007199254740991
+      ],
+      [
+       "perro <-> dog"
+      ]
+     ]
+    ],
+    "front": [
+     999999999999999900000
+    ],
+    "￮": true,
+    "back": "emoji 😀 and 🇦🇺",
+    "_": 1000000,
+    "deleted_at": false
+   },
+   "canonical": "{\"_\":1000000,\"back\":\"emoji 😀 and 🇦🇺\",\"deleted_at\":false,\"front\":[999999999999999900000],\"id\":[1e-7,4.35,[[1.2345e+21,100.125],[\"<img src=x onerror=alert(1)>\",-2.25,9007199254740991],[\"perro <-> dog\"]]],\"￮\":true}",
+   "sha256": "200404f7b3962b8975adc49cd3ee71ea6474e0f3a2cc9398b69d278fc7c2575d"
+  },
+  {
+   "input": {
+    "_": " line sep ",
+    "z": null,
+    "￮": [
+     0.5
+    ],
+    "B": ""
+   },
+   "canonical": "{\"B\":\"\",\"_\":\" line sep \",\"z\":null,\"￮\":[0.5]}",
+   "sha256": "1e6d9d61f7432dfe0478e72c842976b7bf966739be36b923f6cfa8241fd1d648"
+  },
+  {
+   "input": {
+    "2": null,
+    "B": {},
+    "id": "front :: back",
+    "_": [],
+    "𝔘": 12.000000001,
+    "z": "Hello, world"
+   },
+   "canonical": "{\"2\":null,\"B\":{},\"_\":[],\"id\":\"front :: back\",\"z\":\"Hello, world\",\"𝔘\":12.000000001}",
+   "sha256": "752b66f64291363288f6f07bf831e864653d4e58b79f4c2d3f2c0b476019f902"
+  },
+  {
+   "input": {
+    "𝔘": {
+     "￮": null,
+     "aa": "𝔘𝔫"
+    },
+    "日": " delete",
+    "￮": {
+     "deleted_at": 1.7976931348623157e+308,
+     "a": "tab\tnewline\nreturn\r"
+    }
+   },
+   "canonical": "{\"日\":\" delete\",\"￮\":{\"a\":\"tab\\tnewline\\nreturn\\r\",\"deleted_at\":1.7976931348623157e+308},\"𝔘\":{\"aa\":\"𝔘𝔫\",\"￮\":null}}",
+   "sha256": "b9d4c789fa5c2f9a356fa96c75385ff5e646bd11e3011345af0a7aefc115d2e0"
+  },
+  {
+   "input": {
+    "b": "control \u0001\u001f\u0000",
+    "front": [
+     "é accent",
+     null,
+     {
+      "B": {
+       "B": "front :: back"
+      },
+      "aa": null,
+      "￮": "{{img:3f2a}}"
+     }
+    ],
+    "B": {},
+    "_": 1.23e-18
+   },
+   "canonical": "{\"B\":{},\"_\":1.23e-18,\"b\":\"control \\u0001\\u001f\\u0000\",\"front\":[\"é accent\",null,{\"B\":{\"B\":\"front :: back\"},\"aa\":null,\"￮\":\"{{img:3f2a}}\"}]}",
+   "sha256": "56b6d957d2564d19783a9d88d5f459e896e336ab22b975beee9cf86dbeedceaa"
+  },
+  {
+   "input": {
+    "2": false,
+    "a": [],
+    "deleted_at": " delete",
+    "id": null,
+    "日": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"2\":false,\"a\":[],\"deleted_at\":\" delete\",\"id\":null,\"日\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "8ea57b0a3608f0f2f415b1b5e70cf23b49aa7b85250ab9f593349c926019ee4c"
+  },
+  {
+   "input": {
+    "￮": {
+     "id": {
+      "back": "é accent",
+      "￮": "zero​width",
+      "B": []
+     }
+    },
+    "b": "tab\tnewline\nreturn\r",
+    "a_b": " line sep ",
+    "𝔘": false
+   },
+   "canonical": "{\"a_b\":\" line sep \",\"b\":\"tab\\tnewline\\nreturn\\r\",\"￮\":{\"id\":{\"B\":[],\"back\":\"é accent\",\"￮\":\"zero​width\"}},\"𝔘\":false}",
+   "sha256": "a0143b48ee5baf623b3689809a25ba88d008eaa10f363f1d2eecd4633fb3b4a7"
+  },
+  {
+   "input": {
+    "10": {
+     "2": false,
+     "a_b": "tab\tnewline\nreturn\r"
+    },
+    "_": "front :: back",
+    "front": null
+   },
+   "canonical": "{\"10\":{\"2\":false,\"a_b\":\"tab\\tnewline\\nreturn\\r\"},\"_\":\"front :: back\",\"front\":null}",
+   "sha256": "12cc7b0ba09d3c2cdc04cd09d47baf598a27d937ba8c46314be4f21c24fde047"
+  },
+  {
+   "input": {
+    "￮": 7,
+    "é": [],
+    "𝔘": {},
+    "日": {
+     "back": [
+      " delete"
+     ],
+     "_": true
+    }
+   },
+   "canonical": "{\"é\":[],\"日\":{\"_\":true,\"back\":[\" delete\"]},\"￮\":7,\"𝔘\":{}}",
+   "sha256": "328f68cb08a9f35af1c8f7d8052ffbe1e2769a4f3d98523ca840f76ea32b06c2"
+  },
+  {
+   "input": {
+    "a": "<img src=x onerror=alert(1)>"
+   },
+   "canonical": "{\"a\":\"<img src=x onerror=alert(1)>\"}",
+   "sha256": "57eb18e747886ea8ba3ab3403aaebbd615a392adcb22f7fdf478d18e7ce98483"
+  },
+  {
+   "input": {
+    "back": "tab\tnewline\nreturn\r",
+    "é": "control \u0001\u001f\u0000",
+    "日": 0,
+    "￮": {}
+   },
+   "canonical": "{\"back\":\"tab\\tnewline\\nreturn\\r\",\"é\":\"control \\u0001\\u001f\\u0000\",\"日\":0,\"￮\":{}}",
+   "sha256": "f20007a4618738a84c7a8cb275fad2ed70409526a33586efdb43bd31fd11d4e2"
+  },
+  {
+   "input": {
+    "2": 42,
+    "10": {},
+    "é": null,
+    "_": "a",
+    "aa": {
+     "aa": "perro <-> dog",
+     "a": 3.2847123,
+     "𝔘": 1e-7
+    }
+   },
+   "canonical": "{\"10\":{},\"2\":42,\"_\":\"a\",\"aa\":{\"a\":3.2847123,\"aa\":\"perro <-> dog\",\"𝔘\":1e-7},\"é\":null}",
+   "sha256": "ea95fd498d29abe0302933f7a685613d40315bc5c3ebe18157b7f0eafee3ef3c"
+  },
+  {
+   "input": {
+    "deleted_at": "emoji 😀 and 🇦🇺"
+   },
+   "canonical": "{\"deleted_at\":\"emoji 😀 and 🇦🇺\"}",
+   "sha256": "295e8e1de39d3cfd2708f4a590188b91950ed7d31dff32c07617a5f3305ffb4b"
+  },
+  {
+   "input": {
+    "10": {
+     "￮": "tab\tnewline\nreturn\r",
+     "B": false,
+     "日": " delete"
+    },
+    "é": {
+     "2": "{{img:3f2a}}"
+    },
+    "deleted_at": "a"
+   },
+   "canonical": "{\"10\":{\"B\":false,\"日\":\" delete\",\"￮\":\"tab\\tnewline\\nreturn\\r\"},\"deleted_at\":\"a\",\"é\":{\"2\":\"{{img:3f2a}}\"}}",
+   "sha256": "3a91ec9583c48425d1a945803f99a3c54ec7359415cc335ca140dc0c527aaf5e"
+  },
+  {
+   "input": {
+    "𝔘": null,
+    "b": "backspace \b formfeed \f"
+   },
+   "canonical": "{\"b\":\"backspace \\b formfeed \\f\",\"𝔘\":null}",
+   "sha256": "071a63b6a1e93689b05399d4d0749a4693ec6e4345955c1cef21c399a801125e"
+  },
+  {
+   "input": {
+    "2": 0.1,
+    "10": false,
+    "deleted_at": "a",
+    "𝔘": null,
+    "id": 0.000001
+   },
+   "canonical": "{\"10\":false,\"2\":0.1,\"deleted_at\":\"a\",\"id\":0.000001,\"𝔘\":null}",
+   "sha256": "acc1cf725623bc9470e033b72eac6eee249cd8fd7986185864c7543c79bf6d3b"
+  },
+  {
+   "input": {
+    "back": "é accent",
+    "é": "",
+    "日": "control \u0001\u001f\u0000"
+   },
+   "canonical": "{\"back\":\"é accent\",\"é\":\"\",\"日\":\"control \\u0001\\u001f\\u0000\"}",
+   "sha256": "179549a615a19a4490975c5470227c0a65079caac5687b9a851b1ec2b24e8907"
+  },
+  {
+   "input": {
+    "front": "quote \" and backslash \\"
+   },
+   "canonical": "{\"front\":\"quote \\\" and backslash \\\\\"}",
+   "sha256": "38c1b5c4929050a5a845a3c59cd18c7c210dc17928c35a10f39d7296b3dbb68e"
+  },
+  {
+   "input": {
+    "a": null,
+    "aa": "front :: back"
+   },
+   "canonical": "{\"a\":null,\"aa\":\"front :: back\"}",
+   "sha256": "7a40879ec9c475407c4e7bd1cee2da27073ebbc000a9244b18cb55ac4d44c526"
+  },
+  {
+   "input": {
+    "2": {
+     "front": "slash / stays"
+    },
+    "𝔘": [
+     null
+    ],
+    "b": {
+     "_": {
+      "2": "Hello, world",
+      "𝔘": false,
+      "a_b": null
+     }
+    },
+    "é": true,
+    "back": [
+     [
+      0.1,
+      100000000000000000000,
+      [
+       "tab\tnewline\nreturn\r"
+      ]
+     ],
+     "Hello, world",
+     false
+    ],
+    "B": true
+   },
+   "canonical": "{\"2\":{\"front\":\"slash / stays\"},\"B\":true,\"b\":{\"_\":{\"2\":\"Hello, world\",\"a_b\":null,\"𝔘\":false}},\"back\":[[0.1,100000000000000000000,[\"tab\\tnewline\\nreturn\\r\"]],\"Hello, world\",false],\"é\":true,\"𝔘\":[null]}",
+   "sha256": "0cc70fb3a9ad389f59ea29459dbb3fa6f6b170e2ad25fab028ebfa4c06f0eb7c"
+  },
+  {
+   "input": {
+    "b": [
+     false,
+     {
+      "é": " line sep ",
+      "back": "front :: back"
+     }
+    ],
+    "𝔘": {
+     "2": null,
+     "id": [],
+     "b": [
+      "a",
+      [],
+      null
+     ]
+    },
+    "z": {
+     "￮": null,
+     "𝔘": false,
+     "front": true,
+     "id": "control \u0001\u001f\u0000"
+    }
+   },
+   "canonical": "{\"b\":[false,{\"back\":\"front :: back\",\"é\":\" line sep \"}],\"z\":{\"front\":true,\"id\":\"control \\u0001\\u001f\\u0000\",\"￮\":null,\"𝔘\":false},\"𝔘\":{\"2\":null,\"b\":[\"a\",[],null],\"id\":[]}}",
+   "sha256": "c54ffd74f4dfa447c6f0d398c4caa067f4ac4020c328d471d928522d1ed5ed8a"
+  },
+  {
+   "input": {
+    "back": "日本語",
+    "é": "tab\tnewline\nreturn\r"
+   },
+   "canonical": "{\"back\":\"日本語\",\"é\":\"tab\\tnewline\\nreturn\\r\"}",
+   "sha256": "25c2d96dd98daa9e769365d0996323f04dae1e17b22bd6047c055bf5c60e38f4"
+  },
+  {
+   "input": {
+    "deleted_at": null,
+    "b": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"b\":\"$$x^2$$ and **bold**\",\"deleted_at\":null}",
+   "sha256": "fcfc76787c9d628f69077a924e90175dfbc5cdf1cb8311d4b887fd638fbe7dfd"
+  },
+  {
+   "input": {
+    "id": null,
+    "𝔘": " delete",
+    "日": [],
+    "front": null
+   },
+   "canonical": "{\"front\":null,\"id\":null,\"日\":[],\"𝔘\":\" delete\"}",
+   "sha256": "d1e0ecef4d4dd49db110b0365d3bb42e1fdd21e49c05066440399cf6e77402e3"
+  },
+  {
+   "input": {
+    "10": 1,
+    "B": null
+   },
+   "canonical": "{\"10\":1,\"B\":null}",
+   "sha256": "a9c1897ba23ac628543bb63b1806dfa69900025102efdadbdac2574ead8ffbfa"
+  },
+  {
+   "input": {
+    "10": null,
+    "é": -1
+   },
+   "canonical": "{\"10\":null,\"é\":-1}",
+   "sha256": "d4a40d8e9ccfbe599a72c4adeba2632e8b279cfbb4801a066bfa92b3e9d8b2bc"
+  },
+  {
+   "input": {
+    "a_b": 1.5e-7,
+    "deleted_at": 0.000001,
+    "back": true,
+    "𝔘": {
+     "B": null,
+     "é": "日本語",
+     "front": null,
+     "a": false
+    },
+    "B": null
+   },
+   "canonical": "{\"B\":null,\"a_b\":1.5e-7,\"back\":true,\"deleted_at\":0.000001,\"𝔘\":{\"B\":null,\"a\":false,\"front\":null,\"é\":\"日本語\"}}",
+   "sha256": "b92a77358c168020cd89ca4d23015a204fdc36ce9662212eefe4aa0682d3524e"
+  },
+  {
+   "input": {
+    "10": {
+     "é": "",
+     "back": "quote \" and backslash \\"
+    },
+    "deleted_at": false,
+    "back": null,
+    "z": "𝔘𝔫",
+    "front": []
+   },
+   "canonical": "{\"10\":{\"back\":\"quote \\\" and backslash \\\\\",\"é\":\"\"},\"back\":null,\"deleted_at\":false,\"front\":[],\"z\":\"𝔘𝔫\"}",
+   "sha256": "fd85173a490807a330b8ac081292d00a7b63794d11111679bc25723071208912"
+  },
+  {
+   "input": {
+    "id": "zero​width"
+   },
+   "canonical": "{\"id\":\"zero​width\"}",
+   "sha256": "666a953f70a72fca7f0908072e9b573f413ccaefc47d3c4e5784f3a1a16f06e6"
+  },
+  {
+   "input": {
+    "z": null
+   },
+   "canonical": "{\"z\":null}",
+   "sha256": "87e7296a151166a05e4441a11d617caa94402a7266d7933179d7bdb14d6ad31d"
+  },
+  {
+   "input": {
+    "10": -1,
+    "deleted_at": "Hello, world",
+    "B": -9007199254740991,
+    "𝔘": false,
+    "back": 3.2847123
+   },
+   "canonical": "{\"10\":-1,\"B\":-9007199254740991,\"back\":3.2847123,\"deleted_at\":\"Hello, world\",\"𝔘\":false}",
+   "sha256": "e291e5f033f193d9e9a14e7e55d4eea3330ae223a3e267d7fcd3c6a59d209a58"
+  },
+  {
+   "input": {
+    "𝔘": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"𝔘\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "b38c14a1aa2a50e4db9ba7347adc125d2a5a6d48e701abdd540bdfd416537063"
+  },
+  {
+   "input": {
+    "front": 1,
+    "back": true,
+    "_": false
+   },
+   "canonical": "{\"_\":false,\"back\":true,\"front\":1}",
+   "sha256": "846cef6be8982cf39e8494ae70e1e54c7ee09f588d71708b18983dab0ad574f4"
+  },
+  {
+   "input": {
+    "a_b": {
+     "𝔘": null
+    },
+    "id": "quote \" and backslash \\",
+    "B": false,
+    "b": [
+     "é accent",
+     null,
+     "quote \" and backslash \\"
+    ]
+   },
+   "canonical": "{\"B\":false,\"a_b\":{\"𝔘\":null},\"b\":[\"é accent\",null,\"quote \\\" and backslash \\\\\"],\"id\":\"quote \\\" and backslash \\\\\"}",
+   "sha256": "53f85ea9d4db775abfbe681d183aac9c7244d5c4a058ec7a203e5e54ae483a42"
+  },
+  {
+   "input": {
+    "z": null,
+    "aa": true,
+    "é": false,
+    "deleted_at": null
+   },
+   "canonical": "{\"aa\":true,\"deleted_at\":null,\"z\":null,\"é\":false}",
+   "sha256": "b11f34ddba81a14cf832633d9aad9a95b27bb5591fd916eaa7db456a0b652775"
+  },
+  {
+   "input": {
+    "a_b": " line sep ",
+    "aa": "slash / stays",
+    "日": 3.2847123,
+    "a": "perro <-> dog",
+    "back": {
+     "deleted_at": null,
+     "_": "$$x^2$$ and **bold**"
+    }
+   },
+   "canonical": "{\"a\":\"perro <-> dog\",\"a_b\":\" line sep \",\"aa\":\"slash / stays\",\"back\":{\"_\":\"$$x^2$$ and **bold**\",\"deleted_at\":null},\"日\":3.2847123}",
+   "sha256": "4fc3b87275b29973efa4378188f09db6754dfd430c0e19dd71467f7efb3cf5ae"
+  },
+  {
+   "input": {
+    "日": "front :: back",
+    "_": "quote \" and backslash \\",
+    "b": [
+     true,
+     null,
+     "<img src=x onerror=alert(1)>"
+    ],
+    "𝔘": "a"
+   },
+   "canonical": "{\"_\":\"quote \\\" and backslash \\\\\",\"b\":[true,null,\"<img src=x onerror=alert(1)>\"],\"日\":\"front :: back\",\"𝔘\":\"a\"}",
+   "sha256": "0d621b218d6442b78f0c9dbcf931c287070e52e26647dbf02eb43ccd116f694a"
+  },
+  {
+   "input": {
+    "a": true
+   },
+   "canonical": "{\"a\":true}",
+   "sha256": "5daa0644c4a1c43ea018f7f1ef2944b90e0165ef1f2d5669ca89e5d4f69ac597"
+  },
+  {
+   "input": {
+    "10": "<img src=x onerror=alert(1)>"
+   },
+   "canonical": "{\"10\":\"<img src=x onerror=alert(1)>\"}",
+   "sha256": "1bfe087260f4777a197091a745c411fe163440a2093fb1f9a684d920eb53b1dd"
+  },
+  {
+   "input": {
+    "￮": null,
+    "日": null,
+    "deleted_at": true
+   },
+   "canonical": "{\"deleted_at\":true,\"日\":null,\"￮\":null}",
+   "sha256": "e7136cb5a1232bdcf31e658f00767d7a02b943936db7b048d43aa082cd062f70"
+  },
+  {
+   "input": {
+    "front": true
+   },
+   "canonical": "{\"front\":true}",
+   "sha256": "7778fed0fc9907822f17cc4d4a158488a617c61f3b09bba942fd6253d063db24"
+  },
+  {
+   "input": {
+    "a": "zero​width"
+   },
+   "canonical": "{\"a\":\"zero​width\"}",
+   "sha256": "1d2ae326fb36e4dd23f6f428f4acb8dcf85b67d4ca93a7451a2066d38429a8f6"
+  },
+  {
+   "input": {
+    "10": {
+     "10": 5e-324,
+     "é": 0.30000000000000004
+    },
+    "deleted_at": null,
+    "b": {
+     "front": 9007199254740991,
+     "￮": [
+      [
+       true,
+       " delete",
+       1.7976931348623157e+308
+      ],
+      "perro <-> dog"
+     ],
+     "b": {
+      "back": true,
+      "front": []
+     },
+     "z": {
+      "B": [
+       null,
+       0
+      ],
+      "a_b": [
+       "front :: back",
+       "slash / stays"
+      ],
+      "𝔘": null
+     }
+    },
+    "B": "zero​width"
+   },
+   "canonical": "{\"10\":{\"10\":5e-324,\"é\":0.30000000000000004},\"B\":\"zero​width\",\"b\":{\"b\":{\"back\":true,\"front\":[]},\"front\":9007199254740991,\"z\":{\"B\":[null,0],\"a_b\":[\"front :: back\",\"slash / stays\"],\"𝔘\":null},\"￮\":[[true,\" delete\",1.7976931348623157e+308],\"perro <-> dog\"]},\"deleted_at\":null}",
+   "sha256": "c979e2f95e747065256f09640c0d5f9e8e1cf8eb8035703866a81cd5579519c6"
+  },
+  {
+   "input": {
+    "deleted_at": [],
+    "_": "control \u0001\u001f\u0000",
+    "aa": 5e-324,
+    "é": {
+     "10": [
+      {
+       "2": " delete"
+      },
+      "<img src=x onerror=alert(1)>",
+      [
+       true,
+       0.000001,
+       1.7976931348623157e+308
+      ]
+     ],
+     "B": {
+      "b": {}
+     },
+     "front": true,
+     "é": 100000000000000000000
+    },
+    "a": -2.25
+   },
+   "canonical": "{\"_\":\"control \\u0001\\u001f\\u0000\",\"a\":-2.25,\"aa\":5e-324,\"deleted_at\":[],\"é\":{\"10\":[{\"2\":\" delete\"},\"<img src=x onerror=alert(1)>\",[true,0.000001,1.7976931348623157e+308]],\"B\":{\"b\":{}},\"front\":true,\"é\":100000000000000000000}}",
+   "sha256": "d6bac23d9d68c8c8923c04e2a9fb77343c04a30560511076d2fe33e40359ab4d"
+  },
+  {
+   "input": {
+    "￮": "é accent",
+    "B": {
+     "aa": "{{img:3f2a}}"
+    },
+    "_": [
+     "quote \" and backslash \\"
+    ],
+    "b": "emoji 😀 and 🇦🇺",
+    "aa": true,
+    "日": ""
+   },
+   "canonical": "{\"B\":{\"aa\":\"{{img:3f2a}}\"},\"_\":[\"quote \\\" and backslash \\\\\"],\"aa\":true,\"b\":\"emoji 😀 and 🇦🇺\",\"日\":\"\",\"￮\":\"é accent\"}",
+   "sha256": "43a7906b6baca9273e39d4f7b38ed064d1f88fcb2cbd6fe0ddc768748b0aa9fe"
+  },
+  {
+   "input": {
+    "10": {},
+    "￮": "a"
+   },
+   "canonical": "{\"10\":{},\"￮\":\"a\"}",
+   "sha256": "c835216f329467d332cf8366a57f04886c4af29d7155d11074e1fa00ce6698c4"
+  },
+  {
+   "input": {
+    "deleted_at": {},
+    "é": [
+     [
+      100.125,
+      [
+       " delete",
+       "emoji 😀 and 🇦🇺",
+       -1
+      ],
+      "emoji 😀 and 🇦🇺"
+     ]
+    ],
+    "B": -9007199254740991,
+    "a_b": "slash / stays",
+    "aa": [
+     null
+    ],
+    "￮": null
+   },
+   "canonical": "{\"B\":-9007199254740991,\"a_b\":\"slash / stays\",\"aa\":[null],\"deleted_at\":{},\"é\":[[100.125,[\" delete\",\"emoji 😀 and 🇦🇺\",-1],\"emoji 😀 and 🇦🇺\"]],\"￮\":null}",
+   "sha256": "5ba22cfdf471d98bdfe8b5355d0a5ed8c3ee7e34a27fc44aa6419341d3c1d52f"
+  },
+  {
+   "input": {
+    "z": "$$x^2$$ and **bold**"
+   },
+   "canonical": "{\"z\":\"$$x^2$$ and **bold**\"}",
+   "sha256": "440a46e9e21db301b07d7df683d2e59777a979ec528b4dc49d5553b28e3d07d7"
+  },
+  {
+   "input": {
+    "aa": false,
+    "front": null
+   },
+   "canonical": "{\"aa\":false,\"front\":null}",
+   "sha256": "a418b1ea4c72209fef76daf9aef83910622ad855315c3df0eb4f47e4da21d393"
+  },
+  {
+   "input": {
+    "2": 3.2847123,
+    "a_b": {
+     "2": "emoji 😀 and 🇦🇺"
+    },
+    "B": "control \u0001\u001f\u0000"
+   },
+   "canonical": "{\"2\":3.2847123,\"B\":\"control \\u0001\\u001f\\u0000\",\"a_b\":{\"2\":\"emoji 😀 and 🇦🇺\"}}",
+   "sha256": "a2888504e16ca5ef3814cf5142c2139fa5ecbe372ecfa84984aada1ab0ad321a"
+  },
+  {
+   "input": {
+    "10": [
+     -1,
+     "zero​width",
+     "é accent"
+    ],
+    "日": {
+     "10": "Hello, world",
+     "日": [
+      {},
+      "$$x^2$$ and **bold**",
+      [
+       "",
+       "zero​width",
+       "𝔘𝔫"
+      ]
+     ],
+     "id": "zero​width",
+     "_": true
+    },
+    "￮": [
+     7
+    ]
+   },
+   "canonical": "{\"10\":[-1,\"zero​width\",\"é accent\"],\"日\":{\"10\":\"Hello, world\",\"_\":true,\"id\":\"zero​width\",\"日\":[{},\"$$x^2$$ and **bold**\",[\"\",\"zero​width\",\"𝔘𝔫\"]]},\"￮\":[7]}",
+   "sha256": "043878084f943cc6686c009ef51baccb85fb052e271d4ec90b7c86e2008a7635"
+  },
+  {
+   "input": {
+    "2": 0,
+    "𝔘": null,
+    "B": {
+     "back": true,
+     "￮": "tab\tnewline\nreturn\r",
+     "front": true
+    },
+    "a": false
+   },
+   "canonical": "{\"2\":0,\"B\":{\"back\":true,\"front\":true,\"￮\":\"tab\\tnewline\\nreturn\\r\"},\"a\":false,\"𝔘\":null}",
+   "sha256": "6a5281ec7eb11f6562e30f1945c8c5dd08cf325904c3722609c55d90eab8a18d"
+  },
+  {
+   "input": {
+    "2": null,
+    "é": 3.2847123
+   },
+   "canonical": "{\"2\":null,\"é\":3.2847123}",
+   "sha256": "b865dc40b093b52ac6a0622a9f028c63f855518da70fc314c97ba38db1a0f08c"
+  },
+  {
+   "input": {
+    "10": "backspace \b formfeed \f",
+    "𝔘": true,
+    "B": false
+   },
+   "canonical": "{\"10\":\"backspace \\b formfeed \\f\",\"B\":false,\"𝔘\":true}",
+   "sha256": "b5665db5cdfae6e939c04d99b29c2fc084b7ac3b3a98ba347770367aaa542a8e"
+  },
+  {
+   "input": {
+    "z": {},
+    "B": "backspace \b formfeed \f"
+   },
+   "canonical": "{\"B\":\"backspace \\b formfeed \\f\",\"z\":{}}",
+   "sha256": "cf7d268b65be412a6b3800ea327cc6da3ef38e2c1eff657e3d8c4f461e055df5"
+  },
+  {
+   "input": {
+    "2": 4.35,
+    "z": false,
+    "back": "<img src=x onerror=alert(1)>",
+    "￮": "𝔘𝔫",
+    "b": [],
+    "deleted_at": true
+   },
+   "canonical": "{\"2\":4.35,\"b\":[],\"back\":\"<img src=x onerror=alert(1)>\",\"deleted_at\":true,\"z\":false,\"￮\":\"𝔘𝔫\"}",
+   "sha256": "edc6df58ec99a1e86dfc10c22380e23b607304695874a1aa4f76855e0f4e4c45"
+  },
+  {
+   "input": {
+    "B": "zero​width",
+    "日": false,
+    "front": [
+     null,
+     {
+      "10": false,
+      "a_b": {
+       "10": 1e+21,
+       "a": 1.5,
+       "￮": false
+      },
+      "z": null
+     },
+     [
+      [
+       "é accent",
+       "$$x^2$$ and **bold**"
+      ],
+      [],
+      false
+     ]
+    ]
+   },
+   "canonical": "{\"B\":\"zero​width\",\"front\":[null,{\"10\":false,\"a_b\":{\"10\":1e+21,\"a\":1.5,\"￮\":false},\"z\":null},[[\"é accent\",\"$$x^2$$ and **bold**\"],[],false]],\"日\":false}",
+   "sha256": "176291286963ea401a4199e317bd46168eb345dbaecb08ee580564b3f448eafc"
+  },
+  {
+   "input": {
+    "￮": {}
+   },
+   "canonical": "{\"￮\":{}}",
+   "sha256": "bd37004f1d2b3e204aa6b5c701602ae57bdbd4e2f0ed531e17b6a7355eebdada"
+  },
+  {
+   "input": {
+    "a": "emoji 😀 and 🇦🇺"
+   },
+   "canonical": "{\"a\":\"emoji 😀 and 🇦🇺\"}",
+   "sha256": "14a9e7d445d6172d8c45d9d6f60db748e186ccb2dd81ae085d809d1cfcea8774"
+  },
+  {
+   "input": {
+    "2": [
+     {
+      "𝔘": [],
+      "é": false,
+      "_": [
+       null
+      ]
+     },
+     null
+    ],
+    "𝔘": "zero​width"
+   },
+   "canonical": "{\"2\":[{\"_\":[null],\"é\":false,\"𝔘\":[]},null],\"𝔘\":\"zero​width\"}",
+   "sha256": "1445ecbfbb19e6a02e10b71fea0a045ced15023b86ac83620a345591d79aa8c3"
+  },
+  {
+   "input": {
+    "2": 0.6666666666666666,
+    "10": 1e+21
+   },
+   "canonical": "{\"10\":1e+21,\"2\":0.6666666666666666}",
+   "sha256": "281d12cf5b600edd31dc1253f25870e169ef0864aeabf24804b20e8cfc34a6b0"
+  },
+  {
+   "input": {
+    "10": true,
+    "𝔘": null
+   },
+   "canonical": "{\"10\":true,\"𝔘\":null}",
+   "sha256": "b82881a493599508e96d3d15793622f85b351676e78130c7d54dc8186c276284"
+  },
+  {
+   "input": {
+    "deleted_at": {
+     "B": true
+    },
+    "é": "zero​width"
+   },
+   "canonical": "{\"deleted_at\":{\"B\":true},\"é\":\"zero​width\"}",
+   "sha256": "634556e36d2d11594d1c7d18a1a799aa7c857985fa07be720cbc42f1fbbade23"
+  }
+ ],
+ "ops": [
+  {
+   "device": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5",
+   "lane": "note",
+   "id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+   "updated_at": "2026-09-16T11:02:14.318Z",
+   "env": {
+    "notebook_id": "8f1e2d3c-4b5a-4968-8776-655443322110",
+    "parent_id": null,
+    "position": 7,
+    "kind": "paragraph",
+    "unreviewed": false,
+    "occ_mode": null,
+    "typed_answer": false,
+    "created_at": "2026-09-16T11:00:00.000Z",
+    "deleted_at": null
+   },
+   "content": {
+    "front": "perro <-> dog",
+    "back": null,
+    "cloze_text": null,
+    "tags": "",
+    "spans": null,
+    "attrs": "{\"reverse\":true}"
+   },
+   "op_id": "77811f9a-bb35-5bfb-8d85-85c13e786e9f"
+  },
+  {
+   "device": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5",
+   "lane": "note",
+   "id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+   "updated_at": "2026-09-16T11:02:14.318Z",
+   "env": {
+    "notebook_id": "8f1e2d3c-4b5a-4968-8776-655443322110",
+    "parent_id": null,
+    "position": 8,
+    "kind": "paragraph",
+    "unreviewed": false,
+    "occ_mode": null,
+    "typed_answer": false,
+    "created_at": "2026-09-16T11:00:00.000Z",
+    "deleted_at": null
+   },
+   "content": {
+    "front": "perro <-> dog",
+    "back": null,
+    "cloze_text": null,
+    "tags": "",
+    "spans": null,
+    "attrs": "{\"reverse\":true}"
+   },
+   "op_id": "382a2d4a-9463-527f-beac-90ff96e2d017"
+  },
+  {
+   "device": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5",
+   "lane": "note",
+   "id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+   "updated_at": "2026-09-16T11:02:14.318Z",
+   "env": {
+    "notebook_id": "8f1e2d3c-4b5a-4968-8776-655443322110",
+    "parent_id": null,
+    "position": 7,
+    "kind": "paragraph",
+    "unreviewed": false,
+    "occ_mode": null,
+    "typed_answer": false,
+    "created_at": "2026-09-16T11:00:00.000Z",
+    "deleted_at": null
+   },
+   "content": {
+    "front": "perro <-> dog",
+    "back": null,
+    "cloze_text": null,
+    "tags": "",
+    "spans": "[{\"k\":\"b\",\"s\":0,\"e\":5}]",
+    "attrs": "{\"reverse\":true}"
+   },
+   "op_id": "23d88e96-e176-5f16-b9e9-c1d4b007969c"
+  },
+  {
+   "device": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5",
+   "lane": "note",
+   "id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+   "updated_at": "2026-09-16T11:02:14.319Z",
+   "env": {
+    "notebook_id": "8f1e2d3c-4b5a-4968-8776-655443322110",
+    "parent_id": null,
+    "position": 7,
+    "kind": "paragraph",
+    "unreviewed": false,
+    "occ_mode": null,
+    "typed_answer": false,
+    "created_at": "2026-09-16T11:00:00.000Z",
+    "deleted_at": "2026-09-16T11:02:14.319Z"
+   },
+   "op_id": "c4141971-c6d7-5f3d-a32f-099975c9dc9d"
+  },
+  {
+   "device": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5",
+   "lane": "grade_event",
+   "id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+   "updated_at": "2026-09-16T11:02:14.318Z",
+   "env": {
+    "card_id": "5d0c1f3e-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+    "rating": 3,
+    "reviewed_at": "2026-09-16T11:02:14.318Z",
+    "device_id": "0b7c4a55-1d2e-4f60-8a9b-c0d1e2f3a4b5"
+   },
+   "content": {},
+   "op_id": "b8f27f31-6e8d-5dc3-9d27-3c2a77263302"
+  }
+ ]
+}
