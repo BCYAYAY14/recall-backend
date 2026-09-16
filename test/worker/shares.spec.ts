@@ -31,7 +31,7 @@ describe("shares (plan 10.2, W3, W5, W6, F-14)", () => {
     expect(doc.status).toBe(200);
     const text = JSON.stringify(doc.json);
     expect(text).toContain("Shared doc");
-    for (const forbidden of ["stability", "difficulty", "due", "reps", "lapses", "q_snapshot", "secret answer snapshot", mac.library, mac.deviceId, "rel_path"]) {
+    for (const forbidden of ["stability", "difficulty", "due", "reps", "lapses", "q_snapshot", "secret answer snapshot", mac.library, mac.deviceId]) {
       expect(text).not.toContain(forbidden);
     }
   });

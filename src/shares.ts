@@ -47,8 +47,8 @@ export async function liveShare(env: Env, token: unknown, now = Date.now()): Pro
 }
 
 // What a visitor may see: the document, its live notes, card ids and flags,
-// media and regions. Never a schedule, a snapshot, a device, the library id or
-// a local file path.
+// media and regions. Never a schedule, a snapshot, a device or the library id.
+// A media row's `rel_path` is its content-addressed file name, nothing more.
 function pick(o: Record<string, unknown>, keys: string[]) {
   const out: Record<string, unknown> = {};
   for (const k of keys) if (k in o) out[k] = o[k];
@@ -58,10 +58,10 @@ function pick(o: Record<string, unknown>, keys: string[]) {
 export function visitorView(doc: { notebook: WireRow; notes: WireRow[]; cards: WireRow[]; media: WireRow[]; occlusions: WireRow[] }) {
   return {
     notebook: { id: doc.notebook.id, ...pick(doc.notebook.content, ["name", "emoji", "style"]) },
-    notes: doc.notes.map((n) => ({ id: n.id, ...pick(n.env, ["parent_id", "position", "kind", "occ_mode", "typed_answer"]), ...pick(n.content, ["front", "back", "cloze_text", "spans", "attrs"]) })),
+    notes: doc.notes.map((n) => ({ id: n.id, updated_at: n.updated_at, ...pick(n.env, ["notebook_id", "parent_id", "position", "kind", "occ_mode", "typed_answer", "created_at"]), ...pick(n.content, ["front", "back", "cloze_text", "spans", "attrs"]) })),
     cards: doc.cards.map((c) => ({ id: c.id, ...pick(c.env, ["note_id", "cloze_ordinal", "flag", "suspended", "detached"]) })),
-    media: doc.media.map((m) => ({ id: m.id, ...pick(m.env, ["note_id", "mime", "bytes_sha", "display_width"]), ...pick(m.content, ["crop", "latex"]) })),
-    occlusions: doc.occlusions.map((o) => ({ id: o.id, ...pick(o.env, ["note_id", "ordinal", "x", "y", "w", "h", "media_id", "rotation", "z"]), ...pick(o.content, ["label", "points_json"]) })),
+    media: doc.media.map((m) => ({ id: m.id, ...pick(m.env, ["note_id", "rel_path", "mime", "bytes_sha", "display_width", "created_at"]), ...pick(m.content, ["crop", "latex"]) })),
+    occlusion: doc.occlusions.map((o) => ({ id: o.id, ...pick(o.env, ["note_id", "ordinal", "x", "y", "w", "h", "media_id", "rotation", "z"]), ...pick(o.content, ["label", "points_json"]) })),
   };
 }
 

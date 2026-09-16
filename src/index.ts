@@ -10,12 +10,11 @@ import type { Env } from "./env.ts";
 import { HttpFailure, failure, json, logLine, readJson, readText, sha256HexOf } from "./http.ts";
 import { LibraryDO, type Result } from "./library-do.ts";
 import { LimiterDO, type Hit } from "./limiter-do.ts";
-import { LIMITS, PROTOCOL_MAX, PROTOCOL_MIN } from "./protocol.ts";
+import { LIMITS, PROTOCOL_MAX, PROTOCOL_MIN, SCHEMA } from "./protocol.ts";
 import { createShare, listShares, resolveShare, revokeShare } from "./shares.ts";
 
 export { BudgetDO, LibraryDO, LimiterDO };
 
-export const SCHEMA = 219;
 
 function unwrap<T>(r: Result<T>): T {
   if (r.ok) return r.value;

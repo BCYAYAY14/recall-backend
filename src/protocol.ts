@@ -5,6 +5,8 @@ import { isWireTime } from "./isnewer.ts";
 
 export const PROTOCOL_MIN = 1;
 export const PROTOCOL_MAX = 1;
+/** Recall's local migration this backend was written against, as major*100+minor (v2.19). */
+export const SCHEMA = 219;
 export const LIMITS = { ops_per_batch: 500, bytes_per_batch: 1_048_576 } as const;
 
 // Column types. A trailing "?" admits null, which is a deliberate CLEAR.

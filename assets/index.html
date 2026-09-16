@@ -1,4 +1,113 @@
 <!doctype html>
+<html lang="en" data-appearance="light">
+<head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Recall</title>
-<p>Recall backend. The web viewer arrives with CF-3.</p>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+</head>
+<body>
+
+<!-- Pair this browser. Recall shows an eight digit code (Settings, Sync,
+     Pair a device); typing it here gives this browser a read-only device
+     credential. There is no server to set: the page and its backend share an
+     origin. A share link skips this screen entirely. -->
+<div class="signin hidden" id="signin">
+  <form class="signin-card" id="signin-form">
+    <img class="mark" src="icon.png" alt="" width="64" height="64">
+    <h1>Recall</h1>
+    <p class="lede">Read your docs and practise their cards.</p>
+
+    <label class="field">
+      <span>Pairing code</span>
+      <input id="pair-code" inputmode="numeric" autocomplete="one-time-code" required
+             pattern="[0-9 ]{8,9}" maxlength="9" placeholder="1234 5678">
+    </label>
+    <label class="field">
+      <span>Name this browser</span>
+      <input id="pair-label" maxlength="60" autocomplete="off" placeholder="Web browser">
+    </label>
+
+    <button class="primary" id="signin-button" type="submit">Pair</button>
+    <div class="error hidden" id="signin-error"></div>
+
+    <details class="reach">
+      <summary>What this reaches</summary>
+      <p>This browser reads the library this backend holds and makes or stops
+      share links. It never edits a doc and never grades a card; its
+      credential cannot. Remove it from Recall's device list to cut it off.</p>
+    </details>
+  </form>
+</div>
+
+<div class="shell hidden" id="shell">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h1>Recall</h1>
+      <button class="icon-button" id="appearance" title="Light or dark">☀</button>
+      <button class="icon-button" id="signout" title="Sign out">⏻</button>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Filter docs" autocomplete="off">
+    </div>
+    <nav class="tree" id="tree"></nav>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="doc-bar">
+      <div class="doc-heading">
+        <span class="shared-tag">Shared doc · read only</span>
+        <h2 id="doc-title">Recall</h2>
+      </div>
+      <div class="tabs" role="group" aria-label="Notes or cards">
+        <button class="chip on" id="tab-notes" type="button" aria-pressed="true">Notes</button>
+        <button class="chip" id="tab-cards" type="button" aria-pressed="false">Cards</button>
+      </div>
+      <span class="meta" id="doc-meta"></span>
+      <div class="share-wrap owner-only">
+        <button class="chip" id="share-button" type="button" aria-haspopup="dialog">Share</button>
+        <!-- One doc, one link. Anyone holding it reads the doc and practises
+             its cards without an account; Stop sharing ends it everywhere. -->
+        <div class="share-panel hidden" id="share-panel" role="dialog" aria-label="Share this doc">
+          <div class="share-eyebrow">Share link</div>
+          <div class="share-block">
+            <div class="share-row">
+              <span class="share-doc" id="share-doc"></span>
+              <span class="share-state" id="share-state">Not shared</span>
+            </div>
+            <div class="share-row hidden" id="share-link-row">
+              <input id="share-url" readonly aria-label="Share link">
+              <button class="chip" id="share-copy" type="button">Copy</button>
+            </div>
+          </div>
+          <p class="share-caption">No account needed. The link shows this doc and
+          lets people practise its cards; nothing they do is saved.</p>
+          <button class="primary" id="share-create" type="button">Create link</button>
+          <button class="quiet-action hidden" id="share-stop" type="button">Stop sharing</button>
+          <div class="error hidden" id="share-error"></div>
+        </div>
+      </div>
+      <button class="icon-button shared-only" id="appearance-shared" type="button" title="Light or dark">◐</button>
+    </div>
+    <div class="page" id="page"></div>
+    <div class="practice hidden" id="practice"></div>
+    <div class="page"><div class="error hidden" id="doc-error"></div></div>
+  </main>
+</div>
+
+<script src="vendor/katex/katex.min.js"></script>
+<script src="js/spans.js"></script>
+<script src="js/model.js"></script>
+<script src="js/drawing.js"></script>
+<script src="js/backend.js"></script>
+<script src="js/media.js"></script>
+<script src="js/render.js"></script>
+<script src="js/cards.js"></script>
+<!-- Swaps the network for synthetic rows ONLY with ?fixture=shared or
+     ?fixture=signed, so the page can be checked offline. -->
+<script src="js/fixture.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
