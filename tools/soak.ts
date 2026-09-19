@@ -10,9 +10,13 @@
 // client for the middle third of the run (FI-11). Every 60 s both clients
 // quiesce and their digests are compared with GET /v1/digest: ANY mismatch
 // fails the soak. Prints counts and timings only; no token, no row content.
+//
+// Exit 0 SOAK PASS, 1 SOAK FAIL, 2 usage, 3 SOAK INCONCLUSIVE (this machine
+// lost the network for longer than the outage budget; see the retry note
+// below). A run that ends 3 proves nothing past its last EXACT digest.
 
 import { readFileSync } from "node:fs";
-import { ReferenceClient, type FetchLike } from "../client/reference-client.ts";
+import { HttpError, ReferenceClient, type FetchLike } from "../client/reference-client.ts";
 import { wireTime } from "../src/isnewer.ts";
 import { LANES, type ColumnType } from "../src/protocol.ts";
 
@@ -22,6 +26,96 @@ const vars = new Map(readFileSync(file, "utf8").split("\n").filter((l) => l.incl
 const base = vars.get("RECALL_CF_DEV_URL")!;
 const seconds = Number(secondsArg);
 const rate = Number(rateArg);
+
+// BOUNDED RETRY AND BACKOFF. The 72 h production soak died at t+13,271 s on a
+// real network drop (EHOSTUNREACH on this Mac, node exited) with 216 of 216
+// digests EXACT: with no retry, an outage on the machine running the tool reads
+// as a soak that never finished. The retry sits around the REAL fetch inside
+// fetchWithFaults, BEFORE the fault dice, so every INJECTED fault (the lost
+// push, the replay, dropAck, crashMidApply, the corrupt op) still escapes and
+// is still counted, and a network gap can never read as a sync defect.
+//
+// A retried push may deliver the same frame twice. The protocol answers
+// duplicate, which is exactly what FI-5 (the deliberate replay above) already
+// exercises, so a retry cannot make a false PASS out of a broken server.
+//
+// The ladder is 6 attempts at about 2, 4, 8, 16, 32 and 64 s, full jitter
+// (a wait drawn uniformly from 0 to the rung, AWS style: two clients that fail
+// together do not come back together). An outage that outlives the ladder
+// holds at the 64 s rung, and the EPISODE is bounded: 30 minutes of continuous
+// failure ends the run with SOAK INCONCLUSIVE and exit 3. A run that lost the
+// network never prints SOAK PASS.
+// 30 minutes by default. SOAK_OUTAGE_BUDGET_S shortens it so the refusal can
+// be DRIVEN in a minute instead of waited out; the 72 h runs never set it.
+const OUTAGE_BUDGET_MS = Number(process.env.SOAK_OUTAGE_BUDGET_S ?? 1800) * 1000;
+const LADDER = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
+const RETRY_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+const net = { retries: 0, episodes: 0, outageMs: 0, longestMs: 0, exceeded: false };
+let episodeStart = 0;
+let lastFetchMs = 0;
+
+// Thrown when the budget is spent. It extends HttpError because
+// ReferenceClient.push() turns any OTHER throw into "lost" (that is the FI-1
+// model), which would swallow the one error the run must not survive.
+class SoakOutage extends HttpError {
+  constructor(seconds: number) {
+    super(0, { error: `network outage ${seconds} s, past the ${Math.round(OUTAGE_BUDGET_MS / 1000)} s budget` });
+  }
+}
+
+// A real transport failure: the request never got an answer. Node wraps these
+// as "fetch failed" with the cause underneath.
+function transportFailure(e: unknown): boolean {
+  const s = `${String((e as Error)?.message ?? e)} ${String((e as { cause?: unknown })?.cause ?? "")}`;
+  return /fetch failed|ECONN|EHOSTUNREACH|ENETDOWN|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|EPIPE|socket hang up|other side closed|terminated|network|Timeout/i.test(s);
+}
+
+function closeEpisode(recovered: boolean) {
+  if (episodeStart === 0) return;
+  const down = Date.now() - episodeStart;
+  net.outageMs += down;
+  net.longestMs = Math.max(net.longestMs, down);
+  episodeStart = 0;
+  if (recovered) console.log(`network: recovered after ${Math.round(down / 1000)} s down`);
+}
+
+/** The only place this tool calls fetch. Retries the network, never a fault. */
+async function realFetch(input: string, init?: RequestInit): Promise<Response> {
+  let attempt = 0;
+  for (;;) {
+    let failure = "";
+    try {
+      const at = performance.now();
+      const res = await fetch(input, init);
+      if (!RETRY_STATUS.has(res.status)) {
+        lastFetchMs = performance.now() - at;
+        closeEpisode(true);
+        return res;
+      }
+      await res.arrayBuffer();
+      failure = `edge status ${res.status}`;
+    } catch (e) {
+      if (!transportFailure(e)) throw e;
+      failure = String((e as Error)?.message ?? e).split("\n")[0]!;
+    }
+    if (episodeStart === 0) { episodeStart = Date.now(); net.episodes++; }
+    const down = Date.now() - episodeStart;
+    if (down >= OUTAGE_BUDGET_MS) {
+      net.exceeded = true;
+      closeEpisode(false);
+      throw new SoakOutage(Math.round(down / 1000));
+    }
+    const rung = LADDER[Math.min(attempt, LADDER.length - 1)]!;
+    const wait = Math.min(Math.round(Math.random() * rung), Math.max(0, OUTAGE_BUDGET_MS - down));
+    attempt++;
+    net.retries++;
+    console.log(`network: ${failure}, attempt ${attempt}, down ${Math.round(down / 1000)} s, waiting ${Math.round(wait / 1000)} s`);
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
+/** Seconds this run spent waiting for the network, the open episode included. */
+const pausedMs = () => net.outageMs + (episodeStart === 0 ? 0 : Date.now() - episodeStart);
 
 const rnd = (n: number) => Math.floor(Math.random() * n);
 const chance = (p: number) => Math.random() < p;
@@ -33,14 +127,15 @@ function client(pool: string, name: string): ReferenceClient {
   const [id, token] = vars.get(`RECALL_CF_DEV_POOL_${pool}`)!.split(":");
   const fetchWithFaults: FetchLike = async (input, init) => {
     const isPush = String(input).endsWith("/v1/push");
-    const started = performance.now();
-    const res = await fetch(input, init);
-    if (isPush) pushTimes.push(performance.now() - started);
+    // realFetch has already retried the network; the dice below are the faults
+    // this soak MEANS to inject and are never retried.
+    const res = await realFetch(input, init);
+    if (isPush) pushTimes.push(lastFetchMs);
     if (isPush && res.ok && chance(0.03)) {
       // FI-5: the same frame again; every op must answer duplicate.
       faults.replayedPush++;
       await res.arrayBuffer();
-      return fetch(input, init);
+      return realFetch(input, init);
     }
     if (isPush && chance(0.04)) {
       // FI-1, FI-2: the frame reached the server, the answer never came back.
@@ -137,12 +232,17 @@ async function sync(c: ReferenceClient) {
   await c.pull();
 }
 
+// A push here may answer "lost" by design (FI-1), so these catches are the
+// tool working. An OUTAGE is not: it is rethrown, or 30 minutes of no network
+// would read as a quiet quiesce.
+const notAnOutage = (e: unknown) => { if (e instanceof SoakOutage) throw e; };
+
 async function quiesce() {
   c: for (let round = 0; round < 20; round++) {
-    for (const c of [a, b]) { await c.push().catch(() => undefined); }
+    for (const c of [a, b]) { await c.push().catch(notAnOutage); }
     for (const c of [a, b]) { await c.pull(); }
     if (a.dirtyRows().length === 0 && b.dirtyRows().length === 0) {
-      const again = [await a.push().catch(() => "lost"), await b.push().catch(() => "lost")];
+      const again = [await a.push().catch((e) => { notAnOutage(e); return "lost"; }), await b.push().catch((e) => { notAnOutage(e); return "lost"; })];
       if (again.every((x) => x === "empty")) { await a.pull(); await b.pull(); break c; }
     }
   }
@@ -173,43 +273,67 @@ async function checkDigests(label: string): Promise<boolean> {
 }
 
 const started = Date.now();
-await a.hello(); await b.hello();
-await a.pull(); await b.pull();
-let ok = await checkDigests("start");
-let nextCheck = Date.now() + 60_000;
+// D59: an outage EXTENDS the deadline by the time it paused. The soak's claim
+// is 72 h of edits against the backend, not 72 h of clock, so time this tool
+// spent waiting for a network that was not there buys no proof and is added
+// back. `soaked` is that clock; every check label and the middle-third skew
+// window read it, so a gap does not slide the window either.
+const soaked = () => Date.now() - started - pausedMs();
+let ok = false;
 let edits = 0;
-const interval = 1000 / rate;
-while (Date.now() - started < seconds * 1000) {
-  const elapsed = (Date.now() - started) / (seconds * 1000);
-  b.setClockSkew(elapsed > 1 / 3 && elapsed < 2 / 3 ? 300_000 : 0);
-  const c = chance(0.5) ? a : b;
-  edit(c);
-  if (c === b && elapsed > 1 / 3 && elapsed < 2 / 3) faults.skewedEdits++;
-  edits++;
-  if (chance(0.02)) await corruptPush(c);
-  if (chance(0.5)) await sync(c);
-  if (Date.now() >= nextCheck) {
-    ok = (await checkDigests(`t+${Math.round((Date.now() - started) / 1000)}s`)) && ok;
-    nextCheck = Date.now() + 60_000;
+let inconclusive: SoakOutage | null = null;
+try {
+  await a.hello(); await b.hello();
+  await a.pull(); await b.pull();
+  ok = await checkDigests("start");
+  let nextCheck = soaked() + 60_000;
+  const interval = 1000 / rate;
+  while (soaked() < seconds * 1000) {
+    const elapsed = soaked() / (seconds * 1000);
+    b.setClockSkew(elapsed > 1 / 3 && elapsed < 2 / 3 ? 300_000 : 0);
+    const c = chance(0.5) ? a : b;
+    edit(c);
+    if (c === b && elapsed > 1 / 3 && elapsed < 2 / 3) faults.skewedEdits++;
+    edits++;
+    if (chance(0.02)) await corruptPush(c);
+    if (chance(0.5)) await sync(c);
+    if (soaked() >= nextCheck) {
+      ok = (await checkDigests(`t+${Math.round(soaked() / 1000)}s`)) && ok;
+      nextCheck = soaked() + 60_000;
+    }
+    await new Promise((r) => setTimeout(r, interval));
   }
-  await new Promise((r) => setTimeout(r, interval));
+  b.setClockSkew(0);
+  if (process.env.SOAK_NEGATIVE === "1") {
+    // The negative control: a row that diverges without being dirty must fail the check.
+    const row = live(a, "note")[0] ?? live(a, "dictionary")[0];
+    if (row) row.content = { ...row.content, silently: "changed" };
+  }
+  ok = (await checkDigests("end")) && ok;
+} catch (e) {
+  if (!(e instanceof SoakOutage)) throw e;
+  inconclusive = e;
+  ok = false;
 }
-b.setClockSkew(0);
-if (process.env.SOAK_NEGATIVE === "1") {
-  // The negative control: a row that diverges without being dirty must fail the check.
-  const row = live(a, "note")[0] ?? live(a, "dictionary")[0];
-  if (row) row.content = { ...row.content, silently: "changed" };
-}
-ok = (await checkDigests("end")) && ok;
 
 pushTimes.sort((x, y) => x - y);
 const pct = (p: number) => pushTimes.length ? pushTimes[Math.min(pushTimes.length - 1, Math.floor((p / 100) * pushTimes.length))]!.toFixed(0) : "-";
 const rejected = a.stats.rejected + b.stats.rejected;
-console.log(`edits ${edits}, wall ${Math.round((Date.now() - started) / 1000)} s`);
+console.log(`edits ${edits}, soaked ${Math.round(soaked() / 1000)} s, wall ${Math.round((Date.now() - started) / 1000)} s`);
 console.log(`faults ${JSON.stringify(faults)}`);
+// The network's own line, so a gap in the log is read as a gap and never as a
+// sync defect.
+console.log(`network ${JSON.stringify({ retries: net.retries, episodes: net.episodes, outage_s: Math.round(pausedMs() / 1000), longest_s: Math.round(net.longestMs / 1000), budget_s: OUTAGE_BUDGET_MS / 1000 })}`);
 console.log(`a ${JSON.stringify(a.stats)} kept ${a.kept.length}`);
 console.log(`b ${JSON.stringify(b.stats)} kept ${b.kept.length}`);
 console.log(`push round trip p50 ${pct(50)} ms, p95 ${pct(95)} ms, max ${pct(100)} ms over ${pushTimes.length}`);
+if (inconclusive || net.exceeded) {
+  // Not a pass and not a failure of the backend: this machine lost the network
+  // for longer than the budget, so the run proves nothing past its last EXACT
+  // digest. Its own exit code, so a supervisor can tell the two apart.
+  console.log(`SOAK INCONCLUSIVE: ${inconclusive?.body.error ?? "the outage budget was spent"}`);
+  process.exit(3);
+}
 if (rejected !== rejectedExpected.n) { console.log(`rejected ${rejected} but ${rejectedExpected.n} corrupt ops were injected`); ok = false; }
 console.log(ok ? "SOAK PASS" : "SOAK FAIL");
 process.exit(ok ? 0 : 1);
