@@ -7,9 +7,10 @@
 // injected: dropped acks (FI-4), crashes mid-apply (FI-3), pushes lost after
 // the request left (FI-1, FI-2), pushes replayed (FI-5), corrupt ops (FI-10),
 // two mutations in one millisecond (FI-12) and a five-minute clock skew on one
-// client for the middle third of the run (FI-11). Every 60 s both clients
-// quiesce and their digests are compared with GET /v1/digest: ANY mismatch
-// fails the soak. Prints counts and timings only; no token, no row content.
+// client for the middle third of the run (FI-11). Every SOAK_DIGEST_S seconds
+// (60 by default) both clients quiesce and their digests are compared with
+// GET /v1/digest: ANY mismatch fails the soak. Prints counts and timings only;
+// no token, no row content.
 //
 // Exit 0 SOAK PASS, 1 SOAK FAIL, 2 usage, 3 SOAK INCONCLUSIVE (this machine
 // lost the network for longer than the outage budget; see the retry note
@@ -48,6 +49,19 @@ const rate = Number(rateArg);
 // 30 minutes by default. SOAK_OUTAGE_BUDGET_S shortens it so the refusal can
 // be DRIVEN in a minute instead of waited out; the 72 h runs never set it.
 const OUTAGE_BUDGET_MS = Number(process.env.SOAK_OUTAGE_BUDGET_S ?? 1800) * 1000;
+
+// THE DIGEST INTERVAL IS THE RUN'S COST, NOT A DETAIL (owner, 2026-09-21).
+// `GET /v1/digest` reads EVERY row of EVERY lane (`LibraryCore.digest`), so
+// one check costs the whole library in Durable Objects `rows_read`, and the
+// library only grows while the soak edits. At one check a minute the 72 h
+// production run reached 90% of the free tier's 5,000,000 daily rows_read
+// 10.7 h into its second UTC day, with the third day projected at about twice
+// the cap: a limit the run would have hit with every digest still EXACT, and
+// whose errors it would have reported as a backend failure. Nothing a real
+// device does resembles this: a device pulls the rows changed since its
+// watermark and never hashes the library. 60 s stays the default so a short
+// local run keeps its resolution; the 72 h production runs set 600.
+const DIGEST_MS = Number(process.env.SOAK_DIGEST_S ?? 60) * 1000;
 const LADDER = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
 const RETRY_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
 const net = { retries: 0, episodes: 0, outageMs: 0, longestMs: 0, exceeded: false };
@@ -261,6 +275,16 @@ async function checkDigests(label: string): Promise<boolean> {
   const lostBefore = faults.lostPush;
   await quiesce();
   const server = (await a.request("GET", "/v1/digest")).lanes as Record<string, unknown>;
+  // WHAT THIS CHECK COST. Every lane's digest already counts its live rows and
+  // its tombstones, and their sum is exactly the rows the server read to
+  // produce it, so the Durable Objects bill for a check is in the reply and
+  // costs nothing more to print. The tool recorded no usage at all before
+  // (plan 13.6 strand 1), which is how a run got to 90% of a daily cap with
+  // nobody knowing.
+  const rowsRead = Object.values(server).reduce((n: number, d) => {
+    const lane = d as { live?: number; tombstones?: number };
+    return n + (lane.live ?? 0) + (lane.tombstones ?? 0);
+  }, 0);
   const da = await a.digest(), db = await b.digest();
   const bad: string[] = [];
   for (const lane of Object.keys(server)) {
@@ -268,7 +292,7 @@ async function checkDigests(label: string): Promise<boolean> {
     if (JSON.stringify(db[lane]) !== JSON.stringify(server[lane])) bad.push(`b.${lane}`);
   }
   faultsOn();
-  console.log(`${label}: digest ${bad.length === 0 ? "EXACT" : "MISMATCH " + bad.join(",")} (lost pushes during quiesce ${faults.lostPush - lostBefore})`);
+  console.log(`${label}: digest ${bad.length === 0 ? "EXACT" : "MISMATCH " + bad.join(",")} (lost pushes during quiesce ${faults.lostPush - lostBefore}) rows ${rowsRead}`);
   return bad.length === 0;
 }
 
@@ -283,10 +307,11 @@ let ok = false;
 let edits = 0;
 let inconclusive: SoakOutage | null = null;
 try {
+  console.log(`digest every ${DIGEST_MS / 1000} s, ${rate} ops/s, ${seconds} s to soak`);
   await a.hello(); await b.hello();
   await a.pull(); await b.pull();
   ok = await checkDigests("start");
-  let nextCheck = soaked() + 60_000;
+  let nextCheck = soaked() + DIGEST_MS;
   const interval = 1000 / rate;
   while (soaked() < seconds * 1000) {
     const elapsed = soaked() / (seconds * 1000);
@@ -299,7 +324,7 @@ try {
     if (chance(0.5)) await sync(c);
     if (soaked() >= nextCheck) {
       ok = (await checkDigests(`t+${Math.round(soaked() / 1000)}s`)) && ok;
-      nextCheck = soaked() + 60_000;
+      nextCheck = soaked() + DIGEST_MS;
     }
     await new Promise((r) => setTimeout(r, interval));
   }
