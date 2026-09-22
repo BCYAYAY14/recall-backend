@@ -64,6 +64,20 @@ const OUTAGE_BUDGET_MS = Number(process.env.SOAK_OUTAGE_BUDGET_S ?? 1800) * 1000
 const DIGEST_MS = Number(process.env.SOAK_DIGEST_S ?? 60) * 1000;
 const LADDER = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
 const RETRY_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+
+// THE CONNECT WINDOW ALSO RETRIES A 500 (owner, 2026-09-22). The 600 s rerun
+// started on time with the right code and died in its first second: the
+// production Worker answered the opening `hello` with a one-off 500
+// "internal", which is not on the list above, so the error escaped as an
+// uncaught throw with no summary, and a 72 h run ended before its first edit.
+// Production answered health normally an hour later. While `connecting` is
+// true (hello, the first pull and the start digest) a 500 is retried on the
+// same ladder and inside the same outage budget as a network gap. That is safe
+// there and ONLY there: nothing in the window edits, every request in it is a
+// read or an idempotent hello, so a retry cannot turn a sync defect into a
+// PASS. After the start digest a 500 escapes exactly as before, because from
+// then on a server error is evidence about the backend.
+let connecting = false;
 const net = { retries: 0, episodes: 0, outageMs: 0, longestMs: 0, exceeded: false };
 let episodeStart = 0;
 let lastFetchMs = 0;
@@ -101,13 +115,14 @@ async function realFetch(input: string, init?: RequestInit): Promise<Response> {
     try {
       const at = performance.now();
       const res = await fetch(input, init);
-      if (!RETRY_STATUS.has(res.status)) {
+      const connectError = connecting && res.status === 500;
+      if (!RETRY_STATUS.has(res.status) && !connectError) {
         lastFetchMs = performance.now() - at;
         closeEpisode(true);
         return res;
       }
       await res.arrayBuffer();
-      failure = `edge status ${res.status}`;
+      failure = connectError ? "server status 500 while connecting" : `edge status ${res.status}`;
     } catch (e) {
       if (!transportFailure(e)) throw e;
       failure = String((e as Error)?.message ?? e).split("\n")[0]!;
@@ -308,9 +323,11 @@ let edits = 0;
 let inconclusive: SoakOutage | null = null;
 try {
   console.log(`digest every ${DIGEST_MS / 1000} s, ${rate} ops/s, ${seconds} s to soak`);
+  connecting = true;
   await a.hello(); await b.hello();
   await a.pull(); await b.pull();
   ok = await checkDigests("start");
+  connecting = false;
   let nextCheck = soaked() + DIGEST_MS;
   const interval = 1000 / rate;
   while (soaked() < seconds * 1000) {
