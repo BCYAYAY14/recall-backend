@@ -20,9 +20,15 @@ const DELETE_DELAY_MS = 7 * DAY;
 
 interface SocketInfo { device: string; scope: string; run: string; started: number; opsIn: number; opsOut: number; stale: number; conflicts: number; rejected: number }
 
-function doSql(ctx: DurableObjectState): Sql {
+/** `written` hears Cloudflare's own count for every statement, index entries included (the meter the free tier bills). */
+function doSql(ctx: DurableObjectState, written: (n: number) => void): Sql {
   return {
-    exec: (sql, ...params) => ctx.storage.sql.exec(sql, ...params).toArray() as never,
+    exec: (sql, ...params) => {
+      const cursor = ctx.storage.sql.exec(sql, ...params);
+      const rows = cursor.toArray();
+      if (cursor.rowsWritten > 0) written(cursor.rowsWritten);
+      return rows as never;
+    },
     transaction: (fn) => ctx.storage.transactionSync(fn),
   };
 }
@@ -35,11 +41,11 @@ export class LibraryDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.core = new LibraryCore(doSql(ctx));
+    this.core = new LibraryCore(doSql(ctx, (n) => this.countRows(n, Date.now())));
     ctx.blockConcurrencyWhile(async () => {
       this.core.migrate();
-      const day = this.core.meta("rows_day") ?? "";
-      this.rowsToday = { day, n: Number(this.core.meta("rows_n") ?? "0"), persistedAt: Date.now() };
+      const [day = "", n = "0"] = (this.core.meta("rows_today") ?? "").split(" ");
+      this.rowsToday = { day, n: Number(n) || 0, persistedAt: Date.now() };
       if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(nextMaintenance(Date.now()));
     });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
@@ -54,16 +60,16 @@ export class LibraryDO extends DurableObject<Env> {
     }
   }
 
-  // MARK: the daily row-write estimate (plan 15.5)
+  // MARK: the daily row-write count (plan 15.5), Cloudflare's own meter
 
   private countRows(n: number, now: number): void {
     const day = new Date(now).toISOString().slice(0, 10);
     if (this.rowsToday.day !== day) this.rowsToday = { day, n: 0, persistedAt: 0 };
     this.rowsToday.n += n;
     if (now - this.rowsToday.persistedAt > 60_000) {
-      this.core.setMeta("rows_day", day);
-      this.core.setMeta("rows_n", String(this.rowsToday.n));
+      // Stamped first: this write is itself counted, through this function.
       this.rowsToday.persistedAt = now;
+      this.core.setMeta("rows_today", `${day} ${this.rowsToday.n}`);
     }
   }
 
@@ -109,7 +115,6 @@ export class LibraryDO extends DurableObject<Env> {
       this.refuseOverPushRate(device, now);
       this.refuseOverBudget(now);
       const r = this.core.push(device, frame, now);
-      this.countRows(r.rowsWritten, now);
       this.broadcast(r.committed);
       const run = this.httpRuns.get(device);
       if (run) { run.opsIn += frame.ops instanceof Array ? frame.ops.length : 0; run.stale += r.counts.stale; run.conflicts += r.counts.conflict; run.rejected += r.counts.rejected; }
@@ -213,7 +218,6 @@ export class LibraryDO extends DurableObject<Env> {
           this.refuseOverPushRate(info.device, now);
           this.refuseOverBudget(now);
           const r = this.core.push(info.device, frame, now);
-          this.countRows(r.rowsWritten, now);
           info.opsIn += Array.isArray(frame.ops) ? frame.ops.length : 0;
           info.stale += r.counts.stale; info.conflicts += r.counts.conflict; info.rejected += r.counts.rejected;
           ws.serializeAttachment(info);

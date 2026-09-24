@@ -31,27 +31,38 @@ export const TOMBSTONE_PURGE_MS = 30 * DAY;
 export const ACK_WRITE_INTERVAL_MS = 10_000;
 export const LAST_SEEN_INTERVAL_MS = 15 * 60_000;
 
+// Cloudflare counts every index entry a statement touches as a row written,
+// so an index is a cost on every push, not only a speed-up. Two tables carry
+// none beyond their key: `row`, `client` and `meta` are WITHOUT ROWID (the key
+// IS the table), and `op` keeps only its `op_id` uniqueness, which the
+// duplicate outcome needs. An op costs 3 rows written, not 5.4 (schema 2).
 export const DO_SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS op (
      seq INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, device_id TEXT NOT NULL,
      lane TEXT NOT NULL, row_id TEXT NOT NULL, kind TEXT NOT NULL,
      updated_at TEXT NOT NULL, payload TEXT NOT NULL, at INTEGER NOT NULL, replaced_updated_at TEXT, replaced_device TEXT)`,
-  `CREATE INDEX IF NOT EXISTS idx_op_row ON op(lane, row_id, seq)`,
-  `CREATE TABLE IF NOT EXISTS row (
-     lane TEXT NOT NULL, id TEXT NOT NULL, updated_at TEXT NOT NULL, updated_ms INTEGER NOT NULL,
-     deleted_at TEXT, payload TEXT NOT NULL, seq INTEGER NOT NULL, device_id TEXT NOT NULL DEFAULT '', PRIMARY KEY (lane, id))`,
-  `CREATE INDEX IF NOT EXISTS idx_row_seq ON row(seq)`,
+  ROW_TABLE("row"),
   `CREATE TABLE IF NOT EXISTS conflict (
      id TEXT PRIMARY KEY, seq INTEGER NOT NULL, lane TEXT NOT NULL, row_id TEXT NOT NULL,
      loser_device TEXT NOT NULL, loser_updated TEXT NOT NULL, loser_payload TEXT NOT NULL,
      at INTEGER NOT NULL, cleared_at INTEGER)`,
-  `CREATE TABLE IF NOT EXISTS client (
-     device_id TEXT PRIMARY KEY, ack_seq INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL,
-     protocol INTEGER NOT NULL, revoked_at INTEGER)`,
+  CLIENT_TABLE("client"),
 ];
 
-export const SCHEMA_VERSION = 1;
+function ROW_TABLE(name: string): string {
+  return `CREATE TABLE IF NOT EXISTS ${name} (
+     lane TEXT NOT NULL, id TEXT NOT NULL, updated_at TEXT NOT NULL, updated_ms INTEGER NOT NULL,
+     deleted_at TEXT, payload TEXT NOT NULL, seq INTEGER NOT NULL, device_id TEXT NOT NULL DEFAULT '', PRIMARY KEY (lane, id)) WITHOUT ROWID`;
+}
+
+function CLIENT_TABLE(name: string): string {
+  return `CREATE TABLE IF NOT EXISTS ${name} (
+     device_id TEXT PRIMARY KEY, ack_seq INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL,
+     protocol INTEGER NOT NULL, revoked_at INTEGER) WITHOUT ROWID`;
+}
+
+export const SCHEMA_VERSION = 2;
 
 interface RowRecord { lane: string; id: string; updated_at: string; updated_ms: number; deleted_at: string | null; payload: string; seq: number; device_id: string }
 interface OpRecord { seq: number; op_id: string; device_id: string; lane: string; row_id: string; kind: string; updated_at: string; payload: string; replaced_updated_at: string | null; replaced_device: string | null }
@@ -59,7 +70,6 @@ interface OpRecord { seq: number; op_id: string; device_id: string; lane: string
 export interface PushResult {
   ack: { t: "push_ack"; batch: string; seq: number; results: Outcome[] };
   committed: WireRow[];
-  rowsWritten: number;
   counts: { applied: number; duplicate: number; stale: number; conflict: number; rejected: number };
 }
 
@@ -82,7 +92,39 @@ export class LibraryCore {
       this.setMeta("schema_version", String(SCHEMA_VERSION));
       this.setMeta("epoch", this.newId());
       this.setMeta("retained_from", "1");
+    } else if (v === "1") {
+      this.migrateToSchema2();
     }
+  }
+
+  /**
+   * Schema 1 carried two indexes no query needed (`idx_row_seq`, and
+   * `idx_op_row`, which compaction now answers through the row's own seq) and
+   * a rowid beside every text key. The tables are rebuilt once, in one
+   * transaction; rows, ops, cursors and meta come through unchanged.
+   */
+  private migrateToSchema2(): void {
+    this.sql.transaction(() => {
+      this.sql.exec("DROP INDEX IF EXISTS idx_row_seq");
+      this.sql.exec("DROP INDEX IF EXISTS idx_op_row");
+      this.sql.exec(ROW_TABLE("row_v2"));
+      this.sql.exec("INSERT INTO row_v2 SELECT lane, id, updated_at, updated_ms, deleted_at, payload, seq, device_id FROM row");
+      this.sql.exec("DROP TABLE row");
+      this.sql.exec("ALTER TABLE row_v2 RENAME TO row");
+      this.sql.exec(CLIENT_TABLE("client_v2"));
+      this.sql.exec("INSERT INTO client_v2 SELECT device_id, ack_seq, last_seen_at, protocol, revoked_at FROM client");
+      this.sql.exec("DROP TABLE client");
+      this.sql.exec("ALTER TABLE client_v2 RENAME TO client");
+      this.sql.exec("CREATE TABLE meta_v2 (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID");
+      this.sql.exec("INSERT INTO meta_v2 SELECT key, value FROM meta");
+      this.sql.exec("DROP TABLE meta");
+      this.sql.exec("ALTER TABLE meta_v2 RENAME TO meta");
+      // The day's write count moves from two meta rows to one (LibraryDO.countRows).
+      const day = this.meta("rows_day");
+      if (day !== null) this.setMeta("rows_today", `${day} ${this.meta("rows_n") ?? "0"}`);
+      this.sql.exec("DELETE FROM meta WHERE key IN ('rows_day', 'rows_n')");
+      this.setMeta("schema_version", String(SCHEMA_VERSION));
+    });
   }
 
   meta(key: string): string | null {
@@ -183,7 +225,6 @@ export class LibraryCore {
     });
 
     const ordered = orderParentsFirst(valid);
-    let rowsWritten = 0;
     const committed: WireRow[] = [];
 
     this.sql.transaction(() => {
@@ -224,7 +265,6 @@ export class LibraryCore {
             const conflictId = this.newId();
             this.sql.exec(`INSERT INTO conflict (id, seq, lane, row_id, loser_device, loser_updated, loser_payload, at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, conflictId, seq, op.lane, op.id, stored.device_id, stored.updated_at, stored.payload, now);
-            rowsWritten += 1;
             counts.conflict++;
             replaced = { updated_at: stored.updated_at, device: stored.device_id, conflict_id: conflictId };
           }
@@ -236,7 +276,6 @@ export class LibraryCore {
             ON CONFLICT(lane, id) DO UPDATE SET updated_at = excluded.updated_at, updated_ms = excluded.updated_ms,
               deleted_at = excluded.deleted_at, payload = excluded.payload, seq = excluded.seq, device_id = excluded.device_id`,
             op.lane, op.id, op.updated_at, ms, deletedAt, payload, seq, deviceId);
-          rowsWritten += 2;
           results[index] = { op_id: op.op_id, outcome: "applied", seq, ...(replaced ? { conflict_id: replaced.conflict_id } : {}) };
           counts.applied++;
           committed.push({ seq, op_id: op.op_id, lane: op.lane, id: op.id, kind: op.kind, updated_at: op.updated_at, env: op.env, content,
@@ -259,7 +298,6 @@ export class LibraryCore {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, seq, op.op_id, deviceId, op.lane, op.id, op.kind, op.updated_at, payload, now);
           this.sql.exec(`UPDATE row SET deleted_at = ?, payload = ?, seq = ?, device_id = ? WHERE lane = ? AND id = ?`,
             (op.env.deleted_at as string | null | undefined) ?? null, payload, seq, deviceId, op.lane, op.id);
-          rowsWritten += 2;
           results[index] = { op_id: op.op_id, outcome: "applied", seq };
           counts.applied++;
           committed.push({ seq, op_id: op.op_id, lane: op.lane, id: op.id, kind: op.kind, updated_at: op.updated_at, env: op.env, content });
@@ -275,13 +313,12 @@ export class LibraryCore {
         const conflictId = this.newId();
         this.sql.exec(`INSERT INTO conflict (id, seq, lane, row_id, loser_device, loser_updated, loser_payload, at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, conflictId, stored.seq, op.lane, op.id, deviceId, op.updated_at, payload, now);
-        rowsWritten += 1;
         results[index] = { op_id: op.op_id, outcome: "conflict", winner, conflict_id: conflictId };
         counts.conflict++;
       }
     });
 
-    return { ack: { t: "push_ack", batch, seq: this.maxSeq(), results }, committed, rowsWritten, counts };
+    return { ack: { t: "push_ack", batch, seq: this.maxSeq(), results }, committed, counts };
   }
 
   // MARK: pull
@@ -395,10 +432,12 @@ export class LibraryCore {
       const active = this.sql.exec<{ m: number | null }>(
         "SELECT MIN(ack_seq) AS m FROM client WHERE revoked_at IS NULL AND last_seen_at >= ?", now - OP_RETENTION_MS)[0]?.m;
       const ackFloor = active ?? max;
-      const superseded = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM op WHERE seq <> ? AND EXISTS
-        (SELECT 1 FROM op o2 WHERE o2.lane = op.lane AND o2.row_id = op.row_id AND o2.seq > op.seq)`, max)[0]!.n;
-      this.sql.exec(`DELETE FROM op WHERE seq <> ? AND EXISTS
-        (SELECT 1 FROM op o2 WHERE o2.lane = op.lane AND o2.row_id = op.row_id AND o2.seq > op.seq)`, max);
+      // Every op that writes a row stamps the row with its own seq, so an op
+      // below its row's seq is superseded (schema 2: no index on op by row).
+      const superseded = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM op WHERE seq <> ? AND seq <
+        (SELECT r.seq FROM row r WHERE r.lane = op.lane AND r.id = op.row_id)`, max)[0]!.n;
+      this.sql.exec(`DELETE FROM op WHERE seq <> ? AND seq <
+        (SELECT r.seq FROM row r WHERE r.lane = op.lane AND r.id = op.row_id)`, max);
       const agedRows = this.sql.exec<{ s: number | null; n: number }>(
         "SELECT MAX(seq) AS s, COUNT(*) AS n FROM op WHERE at < ? AND seq <= ? AND seq <> ?", now - OP_RETENTION_MS, ackFloor, max)[0]!;
       if (agedRows.n > 0 && agedRows.s !== null) {
