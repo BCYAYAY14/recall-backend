@@ -3,7 +3,7 @@
 //
 //   node tools/soak.ts <env file> <seconds> [pool a] [pool b] [ops per second]
 //
-// Two reference clients edit at random across seven lanes while faults are
+// Two reference clients edit at random across eight lanes while faults are
 // injected: dropped acks (FI-4), crashes mid-apply (FI-3), pushes lost after
 // the request left (FI-1, FI-2), pushes replayed (FI-5), corrupt ops (FI-10),
 // two mutations in one millisecond (FI-12) and a five-minute clock skew on one
@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { HttpError, ReferenceClient, type FetchLike } from "../client/reference-client.ts";
 import { wireTime } from "../src/isnewer.ts";
-import { LANES, type ColumnType } from "../src/protocol.ts";
+import { defaultDice, edit as generate, live } from "./soak-gen.ts";
 
 const [file, secondsArg, poolA = "0", poolB = "1", rateArg = "4"] = process.argv.slice(2);
 if (!file || !secondsArg) { console.error("usage: node tools/soak.ts <env file> <seconds> [pool a] [pool b] [ops per second]"); process.exit(2); }
@@ -186,49 +186,11 @@ function client(pool: string, name: string): ReferenceClient {
 const a = client(poolA, "a");
 const b = client(poolB, "b");
 
-function value(t: ColumnType, now: string, refs: { notebook?: string; note?: string; card?: string }, column: string): unknown {
-  const nullable = t.endsWith("?");
-  const base = (nullable ? t.slice(0, -1) : t) as string;
-  if (nullable && chance(0.3)) return null;
-  switch (base) {
-    case "uuid": return column === "notebook_id" ? refs.notebook ?? crypto.randomUUID()
-      : column === "note_id" ? refs.note ?? crypto.randomUUID()
-      : column === "card_id" ? refs.card ?? crypto.randomUUID() : crypto.randomUUID();
-    case "ts": return now;
-    case "int": return rnd(50);
-    case "num": return Math.round(Math.random() * 1e6) / 1e3;
-    case "bool": return chance(0.5);
-    case "sha": return Array.from({ length: 64 }, () => "0123456789abcdef"[rnd(16)]).join("");
-    case "strmap": return { k: String(rnd(9)) };
-    default: return `soak ${rnd(1e6)} ${chance(0.1) ? "émoji 😀 \"quote\" \\ tab\t" : ""}`;
-  }
-}
-
-const editableLanes = ["notebook", "note", "card", "grade_event", "dictionary", "occlusion", "media"];
-
-function live(c: ReferenceClient, lane: string) {
-  return [...c.rows.values()].filter((r) => r.lane === lane && r.kind === "upsert");
-}
-
+// The generator lives in soak-gen.ts (D-144: every row it writes names a
+// parent it made). A lane whose parent is not held yet is skipped for another.
 function edit(c: ReferenceClient) {
   const now = wireTime(Date.now());
-  const lane = editableLanes[rnd(editableLanes.length)]!;
-  const spec = LANES[lane]!;
-  const refs = { notebook: live(c, "notebook")[0]?.id, note: live(c, "note")[0]?.id, card: live(c, "card")[0]?.id };
-  const existing = live(c, lane);
-  if (existing.length > 0 && spec.tombstones && chance(0.1)) { c.tombstone(lane, existing[rnd(existing.length)]!.id); return; }
-  if (existing.length > 0 && lane === "note" && chance(0.08)) {
-    // FI-12: a second mutation inside the millisecond the row already carries.
-    faults.sameMillisecond++;
-    c.mutateWithoutStamp(lane, existing[rnd(existing.length)]!.id, (r) => { r.content = { ...r.content, tags: `same ms ${rnd(1e6)}` }; });
-    return;
-  }
-  const id = existing.length > 0 && lane !== "grade_event" && chance(0.6) ? existing[rnd(existing.length)]!.id : crypto.randomUUID();
-  const env: Record<string, unknown> = {};
-  for (const [col, t] of Object.entries(spec.env)) env[col] = col === "deleted_at" ? null : value(t, now, refs, col);
-  const content: Record<string, unknown> = {};
-  for (const [col, t] of Object.entries(spec.content)) content[col] = value(t, now, refs, col);
-  c.upsert(lane, id, env, content);
+  for (let tries = 0; tries < 8; tries++) if (generate(c, now, defaultDice, () => { faults.sameMillisecond++; })) return;
 }
 
 async function corruptPush(c: ReferenceClient) {
@@ -377,5 +339,9 @@ if (inconclusive || net.exceeded) {
   process.exit(3);
 }
 if (rejected !== rejectedExpected.n) { console.log(`rejected ${rejected} but ${rejectedExpected.n} corrupt ops were injected`); ok = false; }
+// A row that arrived before a parent it names is one Recall's foreign keys
+// would have dropped (review 2026-09-26, BACKEND-13).
+const orphans = a.stats.orphans + b.stats.orphans;
+if (orphans > 0) { console.log(`orphans ${orphans}: rows arrived before their parents`); ok = false; }
 console.log(ok ? "SOAK PASS" : "SOAK FAIL");
 process.exit(ok ? 0 : 1);

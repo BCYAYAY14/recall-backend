@@ -3,11 +3,12 @@
 // are served before this code runs for every path outside /v1/* (wrangler
 // run_worker_first), so the web app loads even when the API is refused.
 
-import { authenticate, claim, listDevices, pairBegin, pairClaim, recover, requireFull, revokeDevice, rotate, touchDevice, type Caller } from "./auth.ts";
+import { aiComplete } from "./ai.ts";
+import { authenticate, claim, claimedFromBrowser, listDevices, pairBegin, pairClaim, recover, requireFull, revokeDevice, rotate, touchDevice, type Caller } from "./auth.ts";
 import { begin, clearTripCache, commit, download, part, put, shareBlob, writeTripCache } from "./blobs.ts";
 import { BudgetDO } from "./budget-do.ts";
 import type { Env } from "./env.ts";
-import { HttpFailure, failure, json, logLine, readJson, readText, sha256HexOf } from "./http.ts";
+import { HttpFailure, failure, ipBlock, json, logLine, readJson, readText, sha256HexOf } from "./http.ts";
 import { LibraryDO, type Result } from "./library-do.ts";
 import { LimiterDO, type Hit } from "./limiter-do.ts";
 import { LIMITS, PROTOCOL_MAX, PROTOCOL_MIN, SCHEMA } from "./protocol.ts";
@@ -27,17 +28,29 @@ async function limit(env: Env, hits: Hit[]): Promise<void> {
 }
 
 async function ipKey(request: Request): Promise<string> {
-  return (await sha256HexOf("ip:" + (request.headers.get("cf-connecting-ip") ?? "unknown"))).slice(0, 32);
+  return (await sha256HexOf("ip:" + ipBlock(request.headers.get("cf-connecting-ip") ?? "unknown"))).slice(0, 32);
 }
 
 function library(env: Env, caller: Caller) {
   return env.LIBRARY.getByName(`library:${caller.library}`);
 }
 
+const HEALTH_CACHE_KEY = "https://health.recall.invalid/v1/health";
+
+/**
+ * The service probes are cached for 10 s so a burst of checks does not wake
+ * D1 and the library each time; `time` is stamped on every answer and the
+ * answer itself is never cached, because a device compares its clock with it
+ * (review 2026-09-26, BACKEND-7, Recall landmine 254). A claim drops the
+ * cached probes, so `claimed` turns true at once.
+ */
 async function health(env: Env): Promise<Response> {
-  const cacheKey = new Request("https://health.recall.invalid/v1/health");
+  const cacheKey = new Request(HEALTH_CACHE_KEY);
   const cached = await caches.default.match(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    const probed = await cached.json() as Record<string, unknown>;
+    return json({ ...probed, time: new Date().toISOString() }, probed.ok ? 200 : 503, { "cache-control": "no-store" });
+  }
   let d1 = "ok", claimed = false, doState = "unclaimed";
   try {
     const row = await env.META.prepare("SELECT library.id AS id FROM library LIMIT 1").first<{ id: string }>();
@@ -55,11 +68,9 @@ async function health(env: Env): Promise<Response> {
     deployed_at: env.CF_VERSION_METADATA?.timestamp ?? env.DEPLOYED_AT ?? null,
     services: { do: doState, d1, r2 },
     claimed,
-    time: new Date().toISOString(),
   };
-  const response = json(body, body.ok ? 200 : 503, { "cache-control": "public, max-age=10" });
-  await caches.default.put(cacheKey, response.clone());
-  return response;
+  await caches.default.put(cacheKey, json(body, 200, { "cache-control": "public, max-age=10" }));
+  return json({ ...body, time: new Date().toISOString() }, body.ok ? 200 : 503, { "cache-control": "no-store" });
 }
 
 async function route(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<{ response: Response; route: string; device?: string }> {
@@ -75,17 +86,19 @@ async function route(request: Request, env: Env, ctx: ExecutionContext, url: URL
   if (method === "POST" && path === "/v1/claim") {
     const ip = await ipKey(request);
     await limit(env, [{ key: `claim:ip:${ip}`, limit: 5, windowMs: 3_600_000 }, { key: `claim:all:${env.CF_VERSION_METADATA?.id ?? "local"}`, limit: 10, windowMs: 365 * 86_400_000 }]);
-    return { response: json(await claim(env, await readJson(request, 4096))), route: "claim" };
+    const claimed = await claim(env, await readJson(request, 4096), Date.now(), claimedFromBrowser(request));
+    await caches.default.delete(new Request(HEALTH_CACHE_KEY)).catch(() => false);
+    return { response: json(claimed), route: "claim" };
   }
   if (method === "POST" && path === "/v1/pair/claim") {
     const ip = await ipKey(request);
     await limit(env, [{ key: `pair:ip:${ip}`, limit: 20, windowMs: 3_600_000 }]);
-    return { response: json(await pairClaim(env, await readJson(request, 4096))), route: "pair.claim" };
+    return { response: json(await pairClaim(env, await readJson(request, 4096), Date.now(), claimedFromBrowser(request))), route: "pair.claim" };
   }
   if (method === "POST" && path === "/v1/recover") {
     const ip = await ipKey(request);
     await limit(env, [{ key: `recover:ip:${ip}`, limit: 5, windowMs: 3_600_000 }]);
-    return { response: json(await recover(env, await readJson(request, 4096))), route: "recover" };
+    return { response: json(await recover(env, await readJson(request, 4096), Date.now(), claimedFromBrowser(request))), route: "recover" };
   }
   if (method === "POST" && path === "/v1/share/resolve") {
     const body = await readJson(request, 4096);
@@ -148,7 +161,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext, url: URL
     return r(json({ ok: true }), "ack");
   }
   if (method === "GET" && path === "/v1/snapshot") {
-    return r(json(unwrap((await lib.snapshot(url.searchParams.get("after_lane") ?? "", url.searchParams.get("after_id") ?? "", Number(url.searchParams.get("limit") ?? "500"))) as Result<Record<string, unknown>>)), "snapshot");
+    const n = Number(url.searchParams.get("limit") ?? "500");
+    return r(json(unwrap((await lib.snapshot(url.searchParams.get("after_lane") ?? "", url.searchParams.get("after_id") ?? "", Number.isFinite(n) ? n : 500)) as Result<Record<string, unknown>>)), "snapshot");
   }
   if (method === "GET" && path === "/v1/digest") return r(json(await lib.digest()), "digest");
 
@@ -167,6 +181,13 @@ async function route(request: Request, env: Env, ctx: ExecutionContext, url: URL
   if (method === "POST" && path === "/v1/blob/commit") return r(await commit(env, caller, request), "blob.commit");
   if (method === "GET" && seg[1] === "blob" && seg[2] && seg.length === 3) return r(await download(env, caller, request, seg[2]), "blob.get");
 
+  if (method === "POST" && path === "/v1/ai") {
+    // Make Cards and the quiz through OpenRouter with the key held here
+    // (PLAN-BETA-0.12 section 26, W-7). Thirty requests an hour a device.
+    requireFull(caller);
+    await limit(env, [{ key: `ai:device:${caller.device}`, limit: 30, windowMs: 3_600_000 }]);
+    return r(json(await aiComplete(env, caller, await readJson(request, 262_144))), "ai");
+  }
   if (method === "GET" && path === "/v1/export") {
     const lines = await lib.exportLines();
     const stream = new Blob([lines.join("\n") + "\n"]).stream().pipeThrough(new CompressionStream("gzip"));
@@ -199,6 +220,15 @@ async function route(request: Request, env: Env, ctx: ExecutionContext, url: URL
       return r(json({ r2_enabled: enable }), "admin.r2");
     }
     if (method === "POST" && seg[2] === "maintain") return r(json(await lib.maintain()), "admin.maintain");
+    if (method === "GET" && seg[2] === "snapshots") return r(json({ dates: await lib.snapshotDates(caller.library) }), "admin.snapshots");
+    if (method === "POST" && seg[2] === "restore") {
+      // The daily snapshot back into an EMPTY library (BACKEND-12); README, "Restoring a snapshot".
+      const body = await readJson(request, 4096);
+      if (body.confirm !== `restore ${url.hostname}`) throw new HttpFailure(400, "confirm", `Type "restore ${url.hostname}" to confirm.`);
+      const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : null;
+      if (body.date !== undefined && date === null) throw new HttpFailure(400, "bad_date", "A snapshot date is YYYY-MM-DD.");
+      return r(json({ ok: true, rows: unwrap(await lib.restoreFromSnapshot(caller.library, date)) }), "admin.restore");
+    }
     if (method === "POST" && seg[2] === "library" && seg[3] === "delete") {
       const body = await readJson(request, 4096);
       if (body.library_id !== caller.library || body.confirm !== `delete ${url.hostname}`) {

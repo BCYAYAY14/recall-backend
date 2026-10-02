@@ -93,3 +93,17 @@ export async function secretEquals(a: string, b: string): Promise<boolean> {
   for (let i = 0; i < u.length; i++) diff |= u[i]! ^ v[i]!;
   return diff === 0;
 }
+
+/**
+ * The address a limiter counts: an IPv4 address whole, an IPv6 address by
+ * its /64, since one host commonly holds a whole /64 and would otherwise be
+ * as many keys as it has addresses (review 2026-09-26, BACKEND-10).
+ */
+export function ipBlock(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail] = ip.toLowerCase().split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail !== undefined && tail ? tail.split(":") : [];
+  const groups = tail === undefined ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}

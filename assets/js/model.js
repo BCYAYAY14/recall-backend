@@ -8,12 +8,17 @@ const Model = (() => {
 
   const LIST_KINDS = ["bullet", "dash", "numbered"];
 
+  // A block's kind as the page reads it. CODE is gone from Recall (owner,
+  // 2026-09-29): a row another device stored as `code` before then is read,
+  // drawn and edited as a paragraph, and its next save writes `paragraph`.
+  const kindOf = note => (!note.kind || note.kind === "code" ? "paragraph" : note.kind);
+
   // `note.attrs`, the typed face of the JSON blob. Keys are short because
   // the JSON rides every push.
   function decodeAttrs(json) {
     const a = { version: 0, listDepth: 0, widths: [], header: true,
-                cardTable: false, mediaId: null, mediaWidth: null, crop: null,
-                checked: false, reverse: false };
+                cardTable: false, mediaId: null, mediaWidth: null, crop: null, tableFontSize: null,
+                checked: false, mark: null, ask: null };
     if (!json) return a;
     let d;
     try { d = JSON.parse(json); } catch (_) { return a; }
@@ -28,12 +33,47 @@ const Model = (() => {
     a.mediaId = typeof d.m === "string" ? d.m : null;
     a.mediaWidth = typeof d.mw === "number" ? d.mw : null;
     a.crop = Array.isArray(d.crop) ? d.crop.filter(n => typeof n === "number") : null;
+    // `ts`: a table's own text size in Docs' points (`tableFontSize`).
+    a.tableFontSize = typeof d.ts === "number" && d.ts > 0 ? d.ts : null;
     // C-72: a task's TICK and a card's GATE, both shape facts about the
     // block (the tick is not in the text because storage is prefix free, and
     // the gate cannot be read back out of the two faces).
     a.checked = d.chk === true;
-    a.reverse = d.rev === true;
+    // D-191: `tg`, the trigger the line was WRITTEN with (the two faces
+    // cannot say which), and `ask`, a concept's or descriptor's direction
+    // from the arrow's menu. C-72's `rev` reads as `<>`; nothing writes it.
+    a.mark = typeof d.tg === "string" ? d.tg : (d.rev === true ? "<>" : null);
+    a.ask = typeof d.ask === "string" ? d.ask : null;
     return a;
+  }
+
+  // `Note.storedMark`: the trigger `attrs` STORES, or null (the default
+  // `>>` with an answer on its line, or no card).
+  function storedMark(json) {
+    if (!json || (json.indexOf('"tg"') < 0 && json.indexOf('"rev"') < 0)) return null;
+    return Gate.markFromText(decodeAttrs(json).mark);
+  }
+
+  // `Note.cardMark`: the trigger the two faces rejoin with, `>>` when none is
+  // stored (every card a writer outside the canvas stores as two columns).
+  function cardMark(json) {
+    return storedMark(json) || Gate.mark(">>");
+  }
+
+  // `Note.cardAsks`: the trigger's own direction, or the menu's override for
+  // a concept or a descriptor ("f", "r" or "b").
+  function cardAsks(json) {
+    const m = cardMark(json);
+    if (!Gate.takesAskOverride(m.separator) || !json || json.indexOf('"ask"') < 0) return Gate.TRIGGERS[m.separator].asks;
+    return Gate.marksAsks(m, decodeAttrs(json).ask);
+  }
+
+  // `AppDatabase.isListKind` and `listDepth`: a list item counts at its
+  // `attrs.d`, anything else at -1, so a paragraph's list is every list item
+  // under it (D-191's list answers).
+  const isListKind = kind => kind === "bullet" || kind === "dash" || kind === "numbered";
+  function listDepth(note) {
+    return isListKind(note.kind) ? decodeAttrs(note.attrs).listDepth : -1;
   }
 
   // The text a canvas edits, in the form `Note.outlineRawText` returns.
@@ -44,11 +84,13 @@ const Model = (() => {
     if (b) {
       if (note.kind === "table") return "| " + [f, b].join("::");
       if (note.kind === "tablerow") return f + "::" + b;
-      // C-72: the gate this line was WRITTEN with. A `<->` note stores its
-      // two faces exactly as a `::` note does, so the rejoin has to read
-      // `attrs.rev` or the viewer shows a document the app does not.
-      return f + " " + (decodeAttrs(note.attrs).reverse ? "<->" : "::") + " " + b;
+      // D-191: the trigger this line was WRITTEN with, a fact about the
+      // block kept in `attrs.tg` because the two faces cannot say which.
+      return f + " " + cardMark(note.attrs).text + " " + b;
     }
+    // A LIST-SHAPED line: its trigger ends it and the lines under it are its
+    // answer, so it has no back and still owns its trigger.
+    if (note.kind !== "tablerow" && storedMark(note.attrs)) return f + " " + cardMark(note.attrs).text;
     return f;
   }
 
@@ -101,7 +143,7 @@ const Model = (() => {
     }
     const out = [];
     for (const r of rows) {
-      const kind = r.note.kind || "paragraph";
+      const kind = kindOf(r.note);
       // Absorbed above, into the table that owns it.
       if (kind === "tablerow" && r.note.parent_id && tables.has(r.note.parent_id)) continue;
       const block = makeBlock(r, kind, cards);
@@ -113,7 +155,26 @@ const Model = (() => {
       }
       out.push(block);
     }
-    return withListLabels(out);
+    return withListPrompts(withListLabels(out));
+  }
+
+  // D-191: a LIST-SHAPED line (its trigger ends it) with answer lines under
+  // it, the next sibling a list item deeper than it (`listAnswerLines`),
+  // draws the list arrow.
+  function withListPrompts(blocks) {
+    blocks.forEach((b, i) => {
+      b.listWithLines = false;
+      const m = Gate.markFromText(b.attrs.mark);
+      if (!m || m.off || b.back || !b.front || b.isCloze || ["table", "tablerow"].includes(b.kind)) return;
+      const depth = isListKind(b.kind) ? b.attrs.listDepth : -1;
+      for (let k = i + 1; k < blocks.length; k++) {
+        const n = blocks[k];
+        if ((n.parentId || null) !== (b.parentId || null)) continue;
+        b.listWithLines = isListKind(n.kind) && n.attrs.listDepth > depth;
+        break;
+      }
+    });
+    return blocks;
   }
 
   function makeBlock(row, kind, cards) {
@@ -125,6 +186,7 @@ const Model = (() => {
       text,
       runs: Spans.decode(row.note.spans, text),
       attrs: decodeAttrs(row.note.attrs),
+      attrsJson: row.note.attrs ?? null,
       parentId: row.note.parent_id || null,
       structureDepth: row.depth,
       hasCard: !!card,
@@ -225,10 +287,11 @@ const Model = (() => {
     return blocks;
   }
 
-  // A table row's cells. A card row's separator is the card gate; every
-  // other row is TAB separated.
+  // A table row's cells. A card row splits at its column separator, so a
+  // header stored as one front `Term::Meaning` draws as two cells, as the
+  // app draws it (review 2026-09-26, web-1); every other row is TAB separated.
   function cellsOf(rowBlock, cardTable) {
-    if (cardTable) return [rowBlock.front, rowBlock.back];
+    if (cardTable) return Gate.cardCells(rowBlock.text);
     return rowBlock.text.split("\t");
   }
 
@@ -236,6 +299,7 @@ const Model = (() => {
     return block.kind === "table" || block.kind === "image";
   }
 
-  return { build, decodeAttrs, rawText, ordered, indentOf, cellsOf, isDrawn,
-           numberLabel, LIST_KINDS, BULLET_CYCLE, DASH_GLYPH };
+  return { build, kindOf, decodeAttrs, rawText, ordered, indentOf, cellsOf, isDrawn,
+           numberLabel, storedMark, cardMark, cardAsks, isListKind, listDepth,
+           LIST_KINDS, BULLET_CYCLE, DASH_GLYPH };
 })();

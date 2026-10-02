@@ -1,6 +1,6 @@
 // Runs the conformance suite against a DEPLOYED backend with synthetic data.
 //
-//   node tools/conformance-cli.ts <env file>
+//   node tools/conformance-cli.ts <env file> [P<n> ...]
 //
 // The env file (mode 600, outside every repository) holds RECALL_CF_DEV_URL and
 // RECALL_CF_DEV_SETUP_CODE; on first run this tool claims the backend and
@@ -52,17 +52,42 @@ for (let i = 0; i < poolSize; i++) {
   save();
 }
 
+// REVOKE (P32) is the owner's own door, DELETE /v1/devices/<id>, so a deployed
+// backend can do it. A revoked pool device is paired again under the SAME id
+// once the suite ends (pairing un-revokes it and issues a new token), so the
+// pool stays six devices and the backend gains no device rows. The clock and
+// forced compaction (P19) have no door on a deployed backend: P19 runs in the
+// Workers runtime with a moved clock (test/worker/p19-clock.spec.ts).
 let next = 0;
+const slotOf = new Map<string, number>();
+const revoked: string[] = [];
 const env: ConformanceEnv = {
-  capabilities: new Set(),
+  capabilities: new Set(["revoke"]),
   async device() {
-    const [id, token] = vars.get(`RECALL_CF_DEV_POOL_${next++ % poolSize}`)!.split(":");
+    let slot = next++ % poolSize;
+    while (revoked.includes(vars.get(`RECALL_CF_DEV_POOL_${slot}`)!.split(":")[0]!)) slot = next++ % poolSize;
+    const [id, token] = vars.get(`RECALL_CF_DEV_POOL_${slot}`)!.split(":");
+    slotOf.set(id!, slot);
     return new ReferenceClient(base, id!, token!, timed);
+  },
+  async revoke(deviceId) {
+    const r = await fetch(`${base}/v1/devices/${deviceId}`, { method: "DELETE", headers: { authorization: `Bearer ${owner}` } });
+    if (r.status !== 200) throw new Error(`revoke answered ${r.status}`);
+    revoked.push(deviceId);
   },
 };
 
+const only = process.argv.slice(3).filter((a: string) => /^P\d+$/.test(a));
 const started = Date.now();
-const results = await runCases(env);
+const results = await runCases(env, only.length ? only : undefined);
+for (const id of revoked) {
+  const slot = slotOf.get(id)!;
+  const begun = await post("/v1/pair/begin", {}, owner);
+  const paired = await post("/v1/pair/claim", { code: begun.code, device_id: id, label: `Synthetic device ${slot}`, platform: slot % 2 ? "ios" : "mac" });
+  vars.set(`RECALL_CF_DEV_POOL_${slot}`, `${id}:${String(paired.token)}`);
+  save();
+  console.log(`re-paired the revoked pool device ${slot}`);
+}
 for (const r of results) console.log(`${r.result.padEnd(4)} ${r.id.padEnd(4)} ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
 timings.sort((a, b) => a - b);
 const pct = (p: number) => timings[Math.min(timings.length - 1, Math.floor((p / 100) * timings.length))]!.toFixed(0);

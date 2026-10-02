@@ -94,14 +94,17 @@ const Draw = (() => {
   // thickest stroke. An EMPTY drawing keeps the page.
   function pictureBounds(doc) {
     const page = { x: 0, y: 0, w: doc.width, h: doc.height };
-    const boxes = doc.shapes.map(bounds).filter(Boolean);
+    // A shape hidden in the app's layers list is not in the picture
+    // (drawing D2, 2026-09-30).
+    const shown = doc.shapes.filter(s => !s.hidden);
+    const boxes = shown.map(bounds).filter(Boolean);
     if (!boxes.length) return page;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const b of boxes) {
       minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
       maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
     }
-    const thickest = Math.max(0, ...doc.shapes.map(s => strokeOf(s).width));
+    const thickest = Math.max(0, ...shown.map(s => strokeOf(s).width));
     const m = Math.ceil(thickest / 2 + 2);
     return { x: Math.floor(minX - m), y: Math.floor(minY - m),
              w: Math.ceil(maxX - minX + 2 * m), h: Math.ceil(maxY - minY + 2 * m) };
@@ -275,10 +278,11 @@ const Draw = (() => {
       xmlns: NS,
     });
     for (const shape of doc.shapes) {
+      if (shape.hidden) continue;
       for (const node of drawShape(shape, dark)) root.appendChild(node);
     }
     return root;
   }
 
-  return { parse, svg, pictureBounds };
+  return { parse, svg, pictureBounds, drawShape, bounds, PALETTE };
 })();

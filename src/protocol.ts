@@ -86,8 +86,31 @@ export const LANES: Record<string, LaneSpec> = {
   },
 };
 
-/** Parents before children: the order ops are sequenced inside one frame. */
+/** Parents before children: the order ops are sequenced inside one frame, and a snapshot's lane order. */
 export const LANE_ORDER = ["folder", "notebook", "note", "card", "grade_event", "media", "occlusion", "dictionary", "font", "settings", "device"];
+
+/**
+ * The foreign keys of Recall's store (Sources/Core/Database.swift), as
+ * `[env column, parent lane]`: a row whose parent is not held when it arrives
+ * fails its key on the device. The snapshot's order and compaction both keep
+ * a parent ahead of its children (review 2026-09-26, BACKEND-1, BACKEND-2).
+ */
+export const PARENT_COLUMNS: Record<string, [string, string][]> = {
+  notebook: [["folder_id", "folder"]],
+  note: [["notebook_id", "notebook"], ["parent_id", "note"]],
+  card: [["note_id", "note"]],
+  grade_event: [["card_id", "card"]],
+  media: [["note_id", "note"]],
+  occlusion: [["note_id", "note"], ["media_id", "media"]],
+};
+
+/**
+ * How far past the server's clock a pushed `updated_at` may be. A later stamp
+ * would win every honest edit until that date, so it is `rejected`
+ * (`future_time`); the client keeps the row dirty and sends it again once
+ * its clock is right (review 2026-09-26, BACKEND-5).
+ */
+export const MAX_FUTURE_MS = 10 * 60_000;
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const SHA_RE = /^[0-9a-f]{64}$/;
@@ -149,11 +172,13 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 function checkColumns(spec: Record<string, ColumnType>, got: Record<string, unknown>, part: string): string | null {
+  // Own keys only: `k in spec` finds `constructor` and `toString` through
+  // the prototype (review 2026-09-26, BACKEND-6).
   for (const k of Object.keys(got)) {
-    if (!(k in spec)) return `unknown_column:${part}.${k}`;
+    if (!Object.hasOwn(spec, k)) return `unknown_column:${part}.${k}`;
   }
   for (const [k, t] of Object.entries(spec)) {
-    if (!(k in got)) return `missing_column:${part}.${k}`;
+    if (!Object.hasOwn(got, k)) return `missing_column:${part}.${k}`;
     if (!typeOk(t, got[k])) return `bad_type:${part}.${k}`;
   }
   return null;
@@ -183,7 +208,7 @@ export function validateOp(raw: unknown): string | null {
     if (!isPlainObject(op.content)) return "bad_content";
     const contentErr = checkColumns(spec.content, op.content, "content");
     if (contentErr) return contentErr;
-    if ("deleted_at" in spec.env && op.env.deleted_at !== null) return "upsert_with_deleted_at";
+    if (Object.hasOwn(spec.env, "deleted_at") && op.env.deleted_at !== null) return "upsert_with_deleted_at";
   }
   if (spec.stampColumn && op.env[spec.stampColumn] !== op.updated_at) return "stamp_mismatch";
   return null;

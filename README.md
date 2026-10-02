@@ -47,7 +47,8 @@ you change it in the Worker's settings and redeploy.
 
 `GET /v1/health` answers without a credential and carries no secret: protocol
 range, schema, build, deploy time, service status (`r2` is `ok`, `absent` or
-`disabled`), whether it is claimed, and the server time.
+`disabled`), whether it is claimed, and the server time (stamped fresh on
+every answer; the probes behind it are cached 10 s).
 
 ## Attachments (R2), later
 
@@ -65,6 +66,23 @@ a per-minute breaker, `SAFETY_MAX`) are on by default and fail closed.
 
 Switch attachments off at any time without redeploying: set the Worker
 variable `R2_ENABLED` to `false` in the dashboard.
+
+## Restoring a snapshot
+
+With attachments on, the library writes a gzipped NDJSON snapshot to R2 every
+day at 03:17 UTC and keeps the newest 14 dates. The ordinary recovery is the
+Mac: its library is authoritative and bootstraps the backend upward. The
+snapshot is for a library object that lost its rows (a Cloudflare incident):
+
+1. `GET /v1/admin/snapshots` with a device token lists the dates kept.
+2. `POST /v1/admin/restore` with `{"date": "YYYY-MM-DD", "confirm": "restore <your host>"}`
+   (no `date` takes the newest) restores it. A library that still has rows
+   refuses (`409 not_empty`): nothing is ever overwritten.
+3. The restore starts a new epoch, so every device bootstraps from it on its
+   next sync; edits a device made since that date push up as usual, and so
+   does every row a device synced after that date that the snapshot lacks
+   (each device offers it again). The restored library keeps its id, so its
+   next daily snapshot and attachment sweep run as before.
 
 ## Upgrading
 

@@ -7,7 +7,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.ts";
-import { LibraryCore, Refused, type Sql } from "./library-core.ts";
+import { carryReplaced, LibraryCore, Refused, type Sql } from "./library-core.ts";
 import { LIMITS, type WireRow } from "./protocol.ts";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; status: number; code: string; message: string; extra?: Record<string, unknown> };
@@ -184,6 +184,39 @@ export class LibraryDO extends DurableObject<Env> {
     return this.wrap(() => this.core.restoreFrom(lines, Date.now()));
   }
 
+  /** The dates of the daily snapshots R2 holds for a library, oldest first. */
+  async snapshotDates(libraryId: string): Promise<string[]> {
+    if (!this.env.MEDIA || !libraryId) return [];
+    const listed = await this.env.MEDIA.list({ prefix: `${libraryId}/snapshot/`, limit: 1000 });
+    return [...new Set(listed.objects.map((o) => o.key.split("/")[2]!))].sort();
+  }
+
+  /**
+   * The restore door for the daily R2 snapshot (review 2026-09-26,
+   * BACKEND-12): reads one date's parts (the newest when `date` is null) and
+   * restores them into THIS object, which must hold no rows. A new epoch
+   * sends every device to bootstrap. The object is bound to `libraryId`
+   * (the caller's, from D1), which a snapshot written before D-143 does not
+   * carry.
+   */
+  async restoreFromSnapshot(libraryId: string, date: string | null): Promise<Result<number>> {
+    if (!this.env.MEDIA) return { ok: false, status: 503, code: "no_storage", message: "This backend has no attachment storage, so it keeps no snapshots." };
+    const dates = await this.snapshotDates(libraryId);
+    const day = date ?? dates[dates.length - 1] ?? null;
+    if (!day || !dates.includes(day)) return { ok: false, status: 404, code: "no_snapshot", message: "No snapshot of this library was kept on that date." };
+    const listed = await this.env.MEDIA.list({ prefix: `${libraryId}/snapshot/${day}/`, limit: 1000 });
+    const lines: string[] = [];
+    for (const key of listed.objects.map((o) => o.key).sort()) {
+      const obj = await this.env.MEDIA.get(key);
+      if (!obj) return { ok: false, status: 409, code: "snapshot_changed", message: "A part of that snapshot went while it was read. Try again." };
+      const text = await new Response(obj.body.pipeThrough(new DecompressionStream("gzip"))).text();
+      for (const line of text.split("\n")) if (line) lines.push(line);
+    }
+    const out = this.restore(lines);
+    if (out.ok) this.bindLibrary(libraryId);
+    return out;
+  }
+
   exportLines(): string[] { return [...this.core.snapshotLines()]; }
 
   // MARK: WebSocket
@@ -226,7 +259,7 @@ export class LibraryDO extends DurableObject<Env> {
           break;
         }
         case "pull": {
-          const f = this.core.pull(Number(frame.since ?? 0), Number(frame.limit ?? 500));
+          const f = this.core.pull(frame.since === undefined ? 0 : Number(frame.since), Number(frame.limit ?? 500));
           info.opsOut += f.ops.length;
           ws.serializeAttachment(info);
           send(f);
@@ -263,7 +296,7 @@ export class LibraryDO extends DurableObject<Env> {
   /** Fan-out: every connected socket, the sender's included (it discards its own op ids and advances its cursor). */
   private broadcast(committed: WireRow[]): void {
     if (committed.length === 0) return;
-    const frame = JSON.stringify({ t: "ops", from: committed[0]!.seq, to: committed[committed.length - 1]!.seq, more: false, ops: committed });
+    const frame = JSON.stringify({ t: "ops", from: committed[0]!.seq, to: committed[committed.length - 1]!.seq, more: false, ops: carryReplaced(committed) });
     for (const ws of this.ctx.getWebSockets()) {
       try { ws.send(frame); } catch { /* a dead socket catches up on its next hello */ }
     }

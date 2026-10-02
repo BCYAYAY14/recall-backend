@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en" data-appearance="light">
+<html lang="en" data-appearance="light" data-theme="recall">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <title>Recall</title>
 <link rel="stylesheet" href="styles.css">
@@ -11,102 +11,99 @@
 <body>
 
 <!-- Pair this browser. Recall shows an eight digit code (Settings, Sync,
-     Pair a device); typing it here gives this browser a read-only device
-     credential. There is no server to set: the page and its backend share an
-     origin. A share link skips this screen entirely. -->
+     Pair a device); typing it here makes this browser a device of the
+     library, with its own id for every grade and edit it writes. There is no
+     server to set: the page and its backend share an origin. A share link
+     skips this screen entirely. -->
 <div class="signin hidden" id="signin">
   <form class="signin-card" id="signin-form">
-    <img class="mark" src="icon.png" alt="" width="64" height="64">
+    <img class="mark" src="icon.png" alt="" width="56" height="56">
     <h1>Recall</h1>
-    <p class="lede">Read your docs and practise their cards.</p>
+    <p class="lede">Pair this browser with your library.</p>
 
-    <label class="field">
-      <span>Pairing code</span>
-      <input id="pair-code" inputmode="numeric" autocomplete="one-time-code" required
-             pattern="[0-9 ]{8,9}" maxlength="9" placeholder="1234 5678">
-    </label>
-    <label class="field">
-      <span>Name this browser</span>
-      <input id="pair-label" maxlength="60" autocomplete="off" placeholder="Web browser">
-    </label>
+    <label class="field-label" for="pair-code">Pairing code</label>
+    <input class="field big" id="pair-code" inputmode="numeric" autocomplete="one-time-code" required
+           pattern="[0-9 ]{8,9}" maxlength="9" placeholder="1234 5678">
+    <label class="field-label" for="pair-label">Name this browser</label>
+    <input class="field big" id="pair-label" maxlength="60" autocomplete="off" placeholder="Web browser">
 
-    <button class="primary" id="signin-button" type="submit">Pair</button>
-    <div class="error hidden" id="signin-error"></div>
-
-    <details class="reach">
-      <summary>What this reaches</summary>
-      <p>This browser reads the library this backend holds and makes or stops
-      share links. It never edits a doc and never grades a card; its
-      credential cannot. Remove it from Recall's device list to cut it off.</p>
-    </details>
+    <button class="control wide" id="signin-button" type="submit">Pair</button>
+    <p class="help error-line hidden" id="signin-error"></p>
+    <p class="help">In Recall on the Mac: Settings, Sync, Pair a device. This browser then studies, edits and shares
+    as one more device; remove it from Recall's device list to cut it off.</p>
   </form>
 </div>
 
 <div class="shell hidden" id="shell">
   <aside class="sidebar">
     <div class="sidebar-head">
-      <h1>Recall</h1>
-      <button class="icon-button" id="appearance" title="Light or dark">☀</button>
-      <button class="icon-button" id="signout" title="Sign out">⏻</button>
+      <span class="wordmark">Recall</span>
+      <button class="icon-button" id="mode-button" type="button" title="Light or dark" aria-label="Light or dark"><svg class="icon" viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 3a7 7 0 1 0 0 14V3z" fill="currentColor"/></svg></button>
+      <button class="icon-button" id="palette-button" type="button" title="Search (⌘K)" aria-label="Search"><svg class="icon" viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M8.5 3.5a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12.2 12.2l4.3 4.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <button class="icon-button" id="new-doc" type="button" title="New doc" aria-label="New doc"><svg class="icon" viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
     </div>
-    <div class="search-wrap">
-      <input id="search" type="search" placeholder="Filter docs" autocomplete="off">
+    <div class="filter">
+      <input class="field" id="search" type="search" placeholder="Filter docs" autocomplete="off" aria-label="Filter docs">
     </div>
-    <nav class="tree" id="tree"></nav>
+    <nav class="side-scroll" aria-label="Library">
+      <div class="eyebrow side-eyebrow">Library</div>
+      <div id="tree"></div>
+      <div class="eyebrow side-eyebrow">Smart</div>
+      <div id="places"></div>
+    </nav>
+    <div class="sync-line" id="sync-line"></div>
   </aside>
 
   <main class="main" id="main">
-    <div class="doc-bar">
-      <div class="doc-heading">
-        <span class="shared-tag">Shared doc · read only</span>
-        <h2 id="doc-title">Recall</h2>
-      </div>
-      <div class="tabs" role="group" aria-label="Notes or cards">
-        <button class="chip on" id="tab-notes" type="button" aria-pressed="true">Notes</button>
-        <button class="chip" id="tab-cards" type="button" aria-pressed="false">Cards</button>
-      </div>
-      <span class="meta" id="doc-meta"></span>
-      <div class="share-wrap owner-only">
-        <button class="chip" id="share-button" type="button" aria-haspopup="dialog">Share</button>
-        <!-- One doc, one link. Anyone holding it reads the doc and practises
-             its cards without an account; Stop sharing ends it everywhere. -->
-        <div class="share-panel hidden" id="share-panel" role="dialog" aria-label="Share this doc">
-          <div class="share-eyebrow">Share link</div>
-          <div class="share-block">
-            <div class="share-row">
-              <span class="share-doc" id="share-doc"></span>
-              <span class="share-state" id="share-state">Not shared</span>
-            </div>
-            <div class="share-row hidden" id="share-link-row">
-              <input id="share-url" readonly aria-label="Share link">
-              <button class="chip" id="share-copy" type="button">Copy</button>
-            </div>
-          </div>
-          <p class="share-caption">No account needed. The link shows this doc and
-          lets people practise its cards; nothing they do is saved.</p>
-          <button class="primary" id="share-create" type="button">Create link</button>
-          <button class="quiet-action hidden" id="share-stop" type="button">Stop sharing</button>
-          <div class="error hidden" id="share-error"></div>
-        </div>
-      </div>
-      <button class="icon-button shared-only" id="appearance-shared" type="button" title="Light or dark">◐</button>
-    </div>
-    <div class="page" id="page"></div>
-    <div class="practice hidden" id="practice"></div>
-    <div class="page"><div class="error hidden" id="doc-error"></div></div>
+    <header class="titlebar" id="titlebar"></header>
+    <div class="view" id="view"></div>
   </main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Places">
+    <button type="button" data-tab="today"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 6.5h14M5.5 3v3M14.5 3v3M4 4.5h12a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Today</span></button>
+    <button type="button" data-tab="docs"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M5 4h10M5 8h10M5 12h10M5 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Docs</span></button>
+    <button type="button" data-tab="settings"><svg class="icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M10 7.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6zM10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Settings</span></button>
+  </nav>
+
+  <div class="bottom-stack" id="banners" aria-live="polite"></div>
 </div>
 
 <script src="vendor/katex/katex.min.js"></script>
+<script src="js/wire.js"></script>
+<script src="js/order.js"></script>
+<script src="js/fsrs.js"></script>
+<script src="js/gate.js"></script>
+<script src="js/cardline.js"></script>
 <script src="js/spans.js"></script>
 <script src="js/model.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/clip.js"></script>
 <script src="js/drawing.js"></script>
+<script src="js/local.js"></script>
 <script src="js/backend.js"></script>
+<script src="js/sched.js"></script>
+<script src="js/store.js"></script>
 <script src="js/media.js"></script>
 <script src="js/render.js"></script>
+<script src="js/pictures.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/cardmenu.js"></script>
 <script src="js/cards.js"></script>
-<!-- Swaps the network for synthetic rows ONLY with ?fixture=shared or
-     ?fixture=signed, so the page can be checked offline. -->
+<script src="js/study.js"></script>
+<script src="js/words.js"></script>
+<script src="js/upload.js"></script>
+<script src="js/drawedit.js"></script>
+<script src="js/occedit.js"></script>
+<script src="js/find.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/aitext.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/io.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/pages.js"></script>
+<!-- Swaps the network for synthetic rows ONLY with ?fixture=shared,
+     ?fixture=signed or ?fixture=injection, so the page can be checked
+     offline. -->
 <script src="js/fixture.js"></script>
 <script src="js/app.js"></script>
 </body>

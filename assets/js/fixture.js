@@ -1,8 +1,10 @@
-// OFFLINE FIXTURE for the viewer: `index.html?fixture=shared` or
-// `?fixture=signed`. It replaces the network calls on `Backend` with synthetic
-// rows before the shell boots, so every path the page takes (the document,
-// the cards, a share link, the Share panel) can be driven with no project,
-// no account and no credential. Nothing here is loaded without the query.
+// OFFLINE FIXTURE for the web app: `index.html?fixture=shared`,
+// `?fixture=signed` or `?fixture=injection`. It replaces the network with
+// synthetic rows before the shell boots, so every path the page takes (the
+// document, the cards, a share link, the Share sheet, and for `signed` the
+// pages, the study session and the editor, whose writes are acknowledged
+// locally) can be driven with no backend, no account and no credential.
+// Nothing here is loaded without the query.
 
 (() => {
   const requested = new URLSearchParams(location.search).get("fixture");
@@ -60,15 +62,15 @@
 
   note("heading1", "Cells and energy");
   const body = "Body text is 11pt on Google Docs' page, with bold, italic, "
-    + "struck, code, a highlight, a larger phrase and x2 raised.";
+    + "struck, underlined, a highlight, a larger phrase and x2 raised.";
   const at = (word, kind, value) => {
     const start = body.indexOf(word);
     return { start, end: start + word.length, kind, value };
   };
   note("paragraph", body, {
-    runs: [at("bold", "b"), at("italic", "i"), at("struck", "s"), at("code", "c"),
+    runs: [at("bold", "b"), at("italic", "i"), at("struck", "s"), at("underlined", "n"),
            at("a highlight", "h", "#e8c34a"), at("a larger phrase", "z", "16"),
-           at("2", "u"), at("Google", "f", "Times New Roman")],
+           at("2", "u"), at("Google", "f", "Times New Roman"), at("Docs", "l", "https://docs.google.com")],
   });
 
   note("heading2", "Lists");
@@ -88,9 +90,9 @@
   card(note("paragraph", "A suspended card is not practised", { back: "hidden" }), null,
        { suspended: true });
 
-  // C-72 (OR-4, 2026-09-16): the two block kinds and the reverse pair.
-  note("heading2", "Code, tasks and a pair");
-  note("code", "let total = cards.filter(isDue).count");
+  // C-72 (OR-4, 2026-09-16): a task and the reverse pair (code lines left
+  // Recall, owner 2026-09-29).
+  note("heading2", "Tasks and a pair");
   note("checkbox", "Buy the tickets", { attrs: { chk: true } });
   note("checkbox", "Renew the passport");
   const pair = note("paragraph", "perro", { back: "dog", attrs: { rev: true } });
@@ -107,8 +109,10 @@
   note("heading2", "A diagram");
   const diagram = note("paragraph", "Label the parts of the cell", { occMode: "one" });
   const pictureId = "30000000-0000-4000-8000-000000000001";
+  // A media row's sha is 64 hex digits on the wire, or every write to the
+  // row (a width, a crop) is refused; the bytes are drawn here either way.
   media.push({ id: pictureId, note_id: diagram.id, rel_path: "cell.png", mime: "image/png",
-               bytes_sha: "fixture", created_at: stamp, updated_at: stamp, deleted_at: null,
+               bytes_sha: "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1", created_at: stamp, updated_at: stamp, deleted_at: null,
                display_width: 420, crop: null, latex: null });
   [[0, 0.08, 0.1, 0.34, 0.16, "Nucleus"], [1, 0.55, 0.62, 0.34, 0.16, "Membrane"]]
     .forEach(([ordinal, x, y, w, h, label]) => {
@@ -118,11 +122,19 @@
       card(diagram, ordinal);
     });
 
+  // A block picture with no regions, to select, resize and crop (O1).
+  note("heading2", "A picture");
+  const photoId = "30000000-0000-4000-8000-000000000003";
+  const photoNote = note("image", "", { attrs: { m: photoId } });
+  media.push({ id: photoId, note_id: photoNote.id, rel_path: "cell.png", mime: "image/png",
+               bytes_sha: "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff2", created_at: stamp, updated_at: stamp, deleted_at: null,
+               display_width: 360, crop: null, latex: null });
+
   note("heading2", "A drawing");
   const drawingId = "30000000-0000-4000-8000-000000000002";
   const drawingNote = note("image", "", { attrs: { m: drawingId, mw: 420 } });
   media.push({ id: drawingId, note_id: drawingNote.id, rel_path: "sketch.drawing.json",
-               mime: "application/vnd.recall.drawing+json", bytes_sha: "fixture",
+               mime: "application/vnd.recall.drawing+json", bytes_sha: "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff3",
                created_at: stamp, updated_at: stamp, deleted_at: null,
                display_width: 420, crop: null, latex: null });
 
@@ -178,9 +190,12 @@
   }
 
   Backend.checkVersion = async () => ({ pv_min: 1, pv_max: 1 });
-  Backend.media = async row => row.rel_path === "cell.png"
-    ? cellPNG()
-    : new Blob([JSON.stringify(drawing)], { type: "application/json" });
+  Backend.media = async row => {
+    // A picture added in the fixture is in this browser's own copy.
+    const kept = mode === "signed" && row.bytes_sha ? await Local.blob(row.bytes_sha) : null;
+    if (kept) return kept;
+    return row.rel_path === "cell.png" ? cellPNG() : new Blob([JSON.stringify(drawing)], { type: "application/json" });
+  };
 
   if (mode === "shared" || mode === "injection") {
     // `revoked` is a stopped link; anything else answers the doc.
@@ -194,21 +209,44 @@
     return;
   }
 
-  // PAIRED: a library of one folder and two docs, and share links in memory,
-  // so New link and Stop sharing can be pressed.
+  // PAIRED: the library as wire rows adopted into the real store, so the
+  // pages, Study and the editor run their own code. Writes are acknowledged
+  // locally and nothing is sent. Share links are kept in memory.
+  const LANES = Backend.LANES;
+  function defaults(type) {
+    if (type.endsWith("?")) return null;
+    switch (type) {
+      case "ts": return stamp;
+      case "int": case "num": return 0;
+      case "bool": return false;
+      case "strmap": return {};
+      default: return "";
+    }
+  }
+  function wire(lane, flat) {
+    const spec = LANES[lane];
+    const env = {}, content = {};
+    for (const [k, t] of Object.entries(spec.env)) env[k] = flat[k] !== undefined ? flat[k] : defaults(t);
+    for (const [k, t] of Object.entries(spec.content)) content[k] = flat[k] !== undefined ? flat[k] : defaults(t);
+    return { lane, id: flat.id, kind: "upsert", updated_at: flat.updated_at || stamp, env, content };
+  }
+  const second = "10000000-0000-4000-8000-000000000002";
+  const list = [
+    wire("folder", { id: FOLDER, name: "HSC", emoji: "\u{1F4C1}", position: 0 }),
+    wire("notebook", notebook),
+    wire("notebook", { ...notebook, id: second, name: "Empty doc", folder_id: null, style: null, position: 1 }),
+    ...notes.map(n => wire("note", { ...n, tags: "", unreviewed: false, typed_answer: false })),
+    ...cards.map(c => wire("card", { ...c, flag: 0, stability: 0, difficulty: 0, due: stamp, state: "new",
+                                     reps: 0, lapses: 0, suspended: !!c.suspended, detached: !!c.detached })),
+    ...media.map(m => wire("media", m)),
+    ...occlusion.map(o => wire("occlusion", o)),
+    wire("settings", { id: "40000000-0000-4000-8000-000000000001", values: { retention_pct: "90", new_per_day: "10" } }),
+  ];
   const shares = [];
-  const folders = [{ id: FOLDER, name: "HSC", emoji: "📁", position: 0, deleted_at: null }];
-  const docs = [notebook, { ...notebook, id: "10000000-0000-4000-8000-000000000002",
-                            name: "Empty doc", folder_id: null, style: null }];
   Backend.isSignedIn = () => true;
   Backend.isShared = () => false;
-  Backend.folders = async () => folders;
-  Backend.notebooks = async () => docs;
-  Backend.noteCounts = () => new Map([[DOC, notes.length]]);
-  Backend.doc = async docId => docId === DOC
-    ? { notes, cards, media, occlusion }
-    : { notes: [], cards: [], media: [], occlusion: [] };
-  Backend.fontRows = () => [];
+  Backend.start = async () => { Backend.adoptFixture(list); };
+  Backend.sync = async () => {};
   Backend.shares = async docId => shares.filter(x => x.notebook_id === docId && !x.revoked_at);
   Backend.createShare = async docId => {
     const made = { id: uuid(), notebook_id: docId, revoked_at: null };
@@ -219,4 +257,6 @@
     const hit = shares.find(x => x.id === id);
     if (hit) hit.revoked_at = new Date().toISOString();
   };
+  Backend.devices = async () => [{ id: "50000000-0000-4000-8000-000000000001", label: "Fixture browser", platform: "web", this_device: true }];
+  if (!location.hash) history.replaceState(null, "", location.pathname + location.search + "#doc/" + DOC);
 })();

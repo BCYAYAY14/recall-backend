@@ -36,10 +36,19 @@ function refusal(answer: Extract<BudgetAnswer, { ok: false }>): HttpFailure {
   return new HttpFailure(answer.status, "budget", answer.message, { status: answer.reason === "disabled" ? "disabled" : "budget", reason: answer.reason, resets_at: answer.resets_at });
 }
 
-/** The one gate every R2 operation passes. */
-export async function gate(env: Env, library: string, req: BudgetRequest): Promise<void> {
+/**
+ * Storage that is missing or switched off answers so before anything is
+ * looked up, the same way at every door, so a download on a notes-only
+ * backend says `absent` as `begin` does, never a bare 404 (D-071).
+ */
+function requireStorage(env: Env): void {
   if (!env.MEDIA) throw new HttpFailure(501, "absent", "This backend has no attachment storage (notes-only mode).", { status: "absent" });
   if (env.R2_ENABLED === "false") throw new HttpFailure(503, "budget", "Attachment storage is switched off on this backend. Your files are safe on this device.", { status: "disabled", reason: "disabled" });
+}
+
+/** The one gate every R2 operation passes. */
+export async function gate(env: Env, library: string, req: BudgetRequest): Promise<void> {
+  requireStorage(env);
   const classes: ("a" | "b")[] = [];
   if ((req.classA ?? 0) > 0) classes.push("a");
   if ((req.classB ?? 0) > 0) classes.push("b");
@@ -165,6 +174,7 @@ export async function commit(env: Env, caller: Caller, request: Request, now = D
 
 export async function download(env: Env, caller: Caller, request: Request, shaParam: string) {
   const sha = validSha(shaParam);
+  requireStorage(env);
   const row = await attachment(env, caller.library, sha);
   if (!row?.completed_at) throw new HttpFailure(404, "not_found", "Image not available.");
   const range = request.headers.get("range");
@@ -173,7 +183,12 @@ export async function download(env: Env, caller: Caller, request: Request, shaPa
     if (!m) throw new HttpFailure(416, "bad_range", "One byte range, bytes=a-b.");
     await gate(env, caller.library, { kind: "range", classB: 1, device: caller.device, sha });
     const offset = Number(m[1]);
-    const end = m[2] ? Number(m[2]) : row.bytes - 1;
+    // A range past the object is clamped to its last byte; one that starts
+    // past it, or ends before it starts, is unsatisfiable (review 2026-09-26, BACKEND-8).
+    const end = Math.min(m[2] ? Number(m[2]) : row.bytes - 1, row.bytes - 1);
+    if (!Number.isSafeInteger(offset) || offset >= row.bytes || end < offset) {
+      throw new HttpFailure(416, "bad_range", `The object is ${row.bytes} bytes.`, { size: row.bytes });
+    }
     const obj = await env.MEDIA!.get(row.r2_key, { range: { offset, length: end - offset + 1 } });
     if (!obj) throw new HttpFailure(404, "not_found", "Image not available.");
     return new Response(obj.body, { status: 206, headers: { "content-type": row.mime, "content-range": `bytes ${offset}-${end}/${row.bytes}`, "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });

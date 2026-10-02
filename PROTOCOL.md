@@ -85,6 +85,10 @@ relaunch rebuilds the batch and the unchanged row yields the same `op_id`.
 | continuity | A client applies a frame only when `from <= cursor + 1`, then sets `cursor = max(cursor, to)`. A frame with `from > cursor + 1` is a gap: discard it and pull from the cursor |
 | own ops | A client discards the CONTENT of ops whose `op_id` it issued, but advances its cursor across them |
 | `retained_from` | The lowest seq still in the log. A cursor with `cursor + 1 < retained_from` must bootstrap (`resync: true`) |
+| compaction | Daily. An op below its row's newest op is deleted, EXCEPT a parent's oldest op while a retained op that names the parent (`PARENT_COLUMNS` in `src/protocol.ts`) comes before the parent's newest one, so a catch-up still meets a parent before its child. A deleted op's `replaced` marker moves to its row's newest op when that op carries none. Ops older than 45 days and at or below every device seen in 45 days are deleted and `retained_from` moves past them |
+| new epoch | A restored library (`POST /v1/admin/restore`) holds only its snapshot's rows, under a new `epoch`, so a device's next hello answers `resync` with `reason: "epoch"` (a rewound one, `ahead_of_server`). A device bootstrapping for either reason RE-OFFERS every row it holds CLEAN that the snapshot does not name at that revision or newer (a tie is the server's): the row is dirty again, with `base_seq` the named row's `seq` (its revision followed that one on the old log, so it lands as a successor, not a conflict) or 0 when the snapshot does not name it; an append-only row is re-offered only when not named. The device's own `settings` and `device` rows take the same test. No wire change: the snapshot already names every row the library holds (D-142) |
+| tombstones | A tombstone row is purged only when older than 365 days AND at or below the cursor of every device seen in those 365 days. A device away longer, or revoked, must be paired again as a fresh device: its bootstrap cannot name a delete it never heard of |
+| parent order | Every frame and every snapshot delivers a row after the rows its foreign keys name (folder, notebook, note by depth, then card, grade_event, media, occlusion). What remains: a row whose parent a device DELETED locally, or a parent pushed after its child by another device, can still arrive first; a client catches a refused row per row and keeps no seq for it |
 
 ## 6. Frames
 
@@ -119,6 +123,7 @@ order, then a note's parent before its children) inside ONE transaction.
 | Condition, in order | Outcome | Stored |
 | --- | --- | --- |
 | Op fails validation | `rejected` with `reason` | nothing; the rest of the frame continues |
+| `updated_at` more than 10 minutes past the server's clock (`MAX_FUTURE_MS`) | `rejected`, `reason: "future_time"` | nothing; the row stays dirty and goes again once the device's clock is right |
 | `op_id` already in the log | `duplicate`, original `seq` | nothing |
 | No stored row | `applied`, new `seq` | op and row |
 | `updated_at` newer than stored (ms, tie to server) | `applied`, new `seq` | op and row. If the op's `base_seq < stored.seq`, the stored revision came from ANOTHER device and differs, it is a concurrent overwrite: a `conflict` row keeps the replaced revision, the ack carries `conflict_id`, and the op carries `replaced: {updated_at, device}` so the device holding that revision keeps a version even though its row was clean (plan F-22) |
@@ -143,7 +148,9 @@ A revoked device's frame is refused whole before any `seq` is allocated
 
 A wire row: `{seq, op_id, lane, id, kind, updated_at, env, content, replaced?}` with the
 FULL row state after that op. A client whose row carries exactly `replaced.updated_at`
-keeps its content as a kept version before adopting the op. The server stores the ack cursor at most once per
+keeps its content as a kept version before adopting the op. Inside one frame the
+server copies a `replaced` marker onto the newest op of the same row (when that op
+has none of its own), because a client applies only the newest op of a row. The server stores the ack cursor at most once per
 10 seconds per device.
 
 ### 6.4 control
@@ -169,11 +176,11 @@ error is `{ "error": <code>, "message": <sentence> }`.
 | `POST /v1/push` | device, full | push frame | push_ack |
 | `GET /v1/pull?since=&limit=` | device | limit 1..1000, default 500 | ops frame |
 | `POST /v1/ack` | device | `{seq}` | `{ok}` |
-| `GET /v1/snapshot?after_lane=&after_id=&limit=` | device | | `{pinned_seq, rows, more, next}` ordered by (lane, id) |
+| `GET /v1/snapshot?after_lane=&after_id=&limit=` | device | limit 1..1000, default 500 | `{pinned_seq, rows, more, next}` in parent order: lanes as `LANE_ORDER`, notes with no parent by id, then the rest by depth and id. `next` is OPAQUE: a client sends `after_lane` and `after_id` back unread. A cursor from the old (lane, id) order starts the walk again |
 | `GET /v1/digest` | device | | per-lane digest (section 9) |
 | `GET /v1/sync` | device | WebSocket upgrade | frames |
 | `POST /v1/claim` | setup code | `{code, device_id, label, platform, reclaim?}` | `{token, library_id, recovery_codes}` |
-| `POST /v1/pair/begin` | device, full | | `{code, expires_in}` |
+| `POST /v1/pair/begin` | device, full, not a browser | | `{code, expires_in}`; 403 `scope` for a paired browser, judged by how it paired (ruling D-028, section 7) |
 | `POST /v1/pair/claim` | pairing code | `{code, device_id, label, platform}` | `{token, library_id, scope}` |
 | `POST /v1/recover` | recovery code | `{code, device_id, label, platform}` | `{token, library_id}` |
 | `POST /v1/device/rotate` | device | | `{token}`; the old token works 60 s |
@@ -188,8 +195,11 @@ error is `{ "error": <code>, "message": <sentence> }`.
 | `PUT /v1/blob/put/<sha>` | device, full | bytes | `{ok}` |
 | `PUT /v1/blob/part/<sha>/<n>` | device, full | bytes | `{ok, n}` |
 | `POST /v1/blob/commit` | device, full | `{sha}` | `{ok}` |
-| `GET /v1/blob/<sha>` | device | | bytes |
+| `GET /v1/blob/<sha>` | device | | bytes; 501 `absent` on a notes-only backend and 503 `budget` (`status: disabled`) while storage is off, as `begin` answers, before 404 `not_found` |
+| `POST /v1/ai` | device, full | `{system, user, schema_name, schema, max_tokens, model?, structured?}` | `{content, truncated, model}`; OpenRouter with the `OPENROUTER_KEY` secret, 30 an hour a device, 503 `ai_unconfigured` without the secret |
 | `GET /v1/admin/conflicts` | device, full | | recent conflicts, no payloads |
+| `GET /v1/admin/snapshots` | device, full | | `{dates}` of the daily R2 snapshots kept (14) |
+| `POST /v1/admin/restore` | device, full | `{date?, confirm: "restore <host>"}` | `{ok, rows}`; the newest (or named) snapshot into a library with NO rows, 409 `not_empty` otherwise; a new epoch sends every device to bootstrap (section 5, "new epoch"). The object is bound to the caller's library id, and a snapshot's meta line carries `library_id` too, so the next maintenance is not skipped (D-143) |
 | `GET /v1/admin/runs` | device, full | | recent `sync_run` rows |
 | `GET /v1/admin/budget` | device, full | | limits, usage, maxima, trips |
 | `PUT /v1/admin/limits` | device, full | `{key: value}` | refused above `SAFETY_MAX` |
@@ -200,8 +210,20 @@ Status codes: 400 invalid, 401 no or dead credential (`reason: auth | revoked`),
 share expired or revoked, 413 too large, 426 protocol, 429 limit (same JSON as
 the `limit` frame), 503 migration or a dependency down.
 
-Scopes: `full` (Mac, iPhone) and `read_share` (a paired browser: hello, pull,
-snapshot, digest, blob download and shares; never push).
+Scopes: `full` (Mac, iPhone and, since PLAN-BETA-0.12 section 26 ruling W-0, a
+paired browser) and `read_share` (hello, pull, snapshot, digest, blob download
+and shares; never push), which pairing no longer issues and which a credential
+issued before that ruling keeps until it is re-paired.
+
+A paired browser is a device that PAIRED through a browser, not one that says
+it is one (ruling D-028, row D-140). `/v1/claim`, `/v1/pair/claim` and
+`/v1/recover` record the device's platform as `web` when the request carries
+`Origin` or `Sec-Fetch-Site`, whatever `platform` the body declared: a browser
+attaches both and page script can neither set nor remove them, while Recall's
+URLSession sends neither (Node's fetch sends only `Sec-Fetch-Mode`, which is
+not read). `/v1/pair/begin` refuses a device whose recorded platform is `web`.
+A device recorded before this rule keeps the platform it declared and is judged
+by it.
 
 ## 8. Health
 
@@ -211,7 +233,10 @@ snapshot, digest, blob download and shares; never push).
   "claimed": true, "time": "..." }
 ```
 
-No secret, no account id, no library id. Cacheable for 10 seconds.
+No secret, no account id, no library id. The service probes behind `ok`,
+`services` and `claimed` are cached for 10 seconds (a claim drops them); `time`
+is stamped on every answer and the answer is `no-store`, since a device
+compares its clock with it (Recall landmine 254).
 
 ## 9. Digest
 

@@ -67,14 +67,31 @@ function setMeta(env: Env, key: string, value: string): D1PreparedStatement {
   return env.META.prepare("INSERT INTO deploy_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, value);
 }
 
-function validateDeviceFields(body: Record<string, unknown>): { deviceId: string; label: string; platform: string } {
+/**
+ * Whether a device-issuing request came from a web page. A browser attaches
+ * `Origin` to every POST and `Sec-Fetch-Site` to every request, both are
+ * forbidden header names that page script can neither set nor remove, and
+ * Recall's URLSession sends neither (nor does Node's fetch, which sends only
+ * `Sec-Fetch-Mode`). This is how the device PAIRED, which the body's declared
+ * platform cannot say (ruling D-028, row D-140).
+ */
+export function claimedFromBrowser(request: Request): boolean {
+  return request.headers.has("origin") || request.headers.has("sec-fetch-site");
+}
+
+/**
+ * A device claimed through a browser is recorded as `web` whatever platform
+ * it declared, so the row says how it paired and `pairBegin` refuses it. A
+ * row written before this rule keeps what it declared and is judged as then.
+ */
+function validateDeviceFields(body: Record<string, unknown>, browser: boolean): { deviceId: string; label: string; platform: string } {
   const deviceId = String(body.device_id ?? "");
   const label = String(body.label ?? "").slice(0, 80);
-  const platform = String(body.platform ?? "");
+  const declared = String(body.platform ?? "");
   if (!UUID_RE.test(deviceId)) throw new HttpFailure(400, "bad_device", "device_id must be a lowercase uuid.");
   if (!label.trim()) throw new HttpFailure(400, "bad_label", "A device needs a name.");
-  if (!PLATFORMS.has(platform)) throw new HttpFailure(400, "bad_platform", "platform is mac, ios or web.");
-  return { deviceId, label, platform };
+  if (!PLATFORMS.has(declared)) throw new HttpFailure(400, "bad_platform", "platform is mac, ios or web.");
+  return { deviceId, label, platform: browser ? "web" : declared };
 }
 
 async function pairSalt(env: Env): Promise<string> {
@@ -105,9 +122,9 @@ async function issueDevice(env: Env, account: string, library: string, deviceId:
 
 // MARK: claim
 
-export async function claim(env: Env, body: Record<string, unknown>, now = Date.now()) {
+export async function claim(env: Env, body: Record<string, unknown>, now = Date.now(), browser = false) {
   const code = String(body.code ?? "");
-  const { deviceId, label, platform } = validateDeviceFields(body);
+  const { deviceId, label, platform } = validateDeviceFields(body, browser);
   const setup = env.OWNER_SETUP_CODE ?? "";
   if (setup.length < 12) throw new HttpFailure(503, "setup_code_missing", "This backend has no setup code of at least 12 characters. Set OWNER_SETUP_CODE and redeploy.");
   if (now > deployedAt(env) + CLAIM_WINDOW_MS) throw new HttpFailure(410, "window_closed", "The setup window closed an hour after deployment. Change the setup code and redeploy to open it again.");
@@ -173,6 +190,11 @@ async function bindLibrary(env: Env, libraryId: string): Promise<void> {
 
 export async function pairBegin(env: Env, caller: Caller, now = Date.now()) {
   requireFull(caller);
+  // A paired browser keeps the full scope, but only Recall begins a pairing
+  // (ruling D-028, 2026-09-26): a browser left signed in on a shared machine
+  // cannot mint a code that adds another device. `platform` is `web` for any
+  // device whose claim came through a browser, whatever it declared.
+  if (caller.platform === "web") throw new HttpFailure(403, "scope", "Pair a device from Recall on the Mac or the iPhone.");
   const salt = await pairSalt(env);
   const digits = crypto.getRandomValues(new Uint32Array(2));
   const code = String(digits[0]! % 10_000).padStart(4, "0") + String(digits[1]! % 10_000).padStart(4, "0");
@@ -184,24 +206,29 @@ export async function pairBegin(env: Env, caller: Caller, now = Date.now()) {
   return { code: `${code.slice(0, 4)} ${code.slice(4)}`, expires_in: PAIR_TTL_MS / 1000 };
 }
 
-export async function pairClaim(env: Env, body: Record<string, unknown>, now = Date.now()) {
+export async function pairClaim(env: Env, body: Record<string, unknown>, now = Date.now(), browser = false) {
   const code = String(body.code ?? "").replace(/\s+/g, "");
-  const { deviceId, label, platform } = validateDeviceFields(body);
+  const { deviceId, label, platform } = validateDeviceFields(body, browser);
   if (!/^\d{8}$/.test(code)) throw new HttpFailure(400, "bad_code", "A pairing code is eight digits.");
   const salt = await pairSalt(env);
-  const live = await env.META.prepare("SELECT code_sha, account_id, attempts FROM pairing_code WHERE used_at IS NULL AND expires_at > ? AND attempts < ?")
-    .bind(nowIso(now), PAIR_ATTEMPTS).all<{ code_sha: string; account_id: string; attempts: number }>();
+  // Every claim costs EVERY live code an attempt, so guessing cannot target
+  // one, and the cost is taken in the SAME statement that reads which codes
+  // are still under the cap: parallel guesses cannot all read `attempts < 5`
+  // before any increment lands (review 2026-09-26, BACKEND-10).
+  const live = await env.META.prepare(`UPDATE pairing_code SET attempts = attempts + 1
+      WHERE used_at IS NULL AND expires_at > ? AND attempts < ? RETURNING code_sha, account_id`)
+    .bind(nowIso(now), PAIR_ATTEMPTS).all<{ code_sha: string; account_id: string }>();
   const offered = await sha256HexOf(salt + code);
   let match: { code_sha: string; account_id: string } | undefined;
   for (const c of live.results) if (await secretEquals(c.code_sha, offered)) match = c;
-  if (!match) {
-    // A wrong guess costs EVERY live code an attempt, so guessing cannot target one.
-    await env.META.prepare("UPDATE pairing_code SET attempts = attempts + 1 WHERE used_at IS NULL AND expires_at > ?").bind(nowIso(now)).run();
-    throw new HttpFailure(401, "bad_code", "That pairing code is wrong or has expired.");
-  }
+  if (!match) throw new HttpFailure(401, "bad_code", "That pairing code is wrong or has expired.");
   const library = await env.META.prepare("SELECT id FROM library WHERE account_id = ?").bind(match.account_id).first<{ id: string }>();
   if (!library) throw new HttpFailure(500, "no_library", "The account has no library.");
-  const scope = platform === "web" ? "read_share" : "full";
+  // A paired browser is a DEVICE with full scope (PLAN-BETA-0.12 section
+  // 26, ruling W-0, 2026-09-23): it grades and edits, so it carries its own
+  // device id into every row it writes. A share link is not a device and
+  // stays read-only for ever (it never reaches this function).
+  const scope = "full";
   const issued = await issueDevice(env, match.account_id, library.id, deviceId, label, platform, scope, now);
   const used = await env.META.prepare("UPDATE pairing_code SET used_at = ? WHERE code_sha = ? AND used_at IS NULL").bind(nowIso(now), match.code_sha).run();
   if (used.meta.changes !== 1) throw new HttpFailure(401, "bad_code", "That pairing code was already used.");
@@ -210,9 +237,9 @@ export async function pairClaim(env: Env, body: Record<string, unknown>, now = D
   return { token: issued.token, library_id: library.id, scope };
 }
 
-export async function recover(env: Env, body: Record<string, unknown>, now = Date.now()) {
+export async function recover(env: Env, body: Record<string, unknown>, now = Date.now(), browser = false) {
   const code = String(body.code ?? "").trim().toLowerCase();
-  const { deviceId, label, platform } = validateDeviceFields(body);
+  const { deviceId, label, platform } = validateDeviceFields(body, browser);
   const salt = await pairSalt(env);
   const sha = await sha256HexOf(salt + code);
   const used = await env.META.prepare("UPDATE recovery_code SET used_at = ? WHERE code_sha = ? AND used_at IS NULL RETURNING account_id")
@@ -220,7 +247,7 @@ export async function recover(env: Env, body: Record<string, unknown>, now = Dat
   if (!used) throw new HttpFailure(401, "bad_code", "That recovery code is wrong or was already used.");
   const library = await env.META.prepare("SELECT id FROM library WHERE account_id = ?").bind(used.account_id).first<{ id: string }>();
   if (!library) throw new HttpFailure(500, "no_library", "The account has no library.");
-  const issued = await issueDevice(env, used.account_id, library.id, deviceId, label, platform, platform === "web" ? "read_share" : "full", now);
+  const issued = await issueDevice(env, used.account_id, library.id, deviceId, label, platform, "full", now);
   await issued.statement.run();
   await env.LIBRARY.getByName(`library:${library.id}`).unrevokeDevice(deviceId);
   return { token: issued.token, library_id: library.id };

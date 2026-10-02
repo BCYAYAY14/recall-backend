@@ -11,7 +11,7 @@
 import { canonical, sha256Hex } from "../src/canonical.ts";
 import { isNewer, wireMillis, wireTime } from "../src/isnewer.ts";
 import { opId, payloadDigest } from "../src/opid.ts";
-import { LANES, LANE_ORDER, type Outcome, type WireRow } from "../src/protocol.ts";
+import { LANES, LANE_ORDER, PARENT_COLUMNS, type Outcome, type WireRow } from "../src/protocol.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -55,7 +55,9 @@ export class ReferenceClient {
   epoch: string | null = null;
   issued = new Set<string>();
   inFlight = false;
-  stats = { pushes: 0, requeued: 0, applied: 0, duplicate: 0, stale: 0, conflict: 0, rejected: 0, gaps: 0, bootstraps: 0, requests: 0 };
+  stats = { pushes: 0, requeued: 0, applied: 0, duplicate: 0, stale: 0, conflict: 0, rejected: 0, gaps: 0, bootstraps: 0, requests: 0, orphans: 0 };
+  /** Every remote row refused because a parent it names was not held, as Recall's foreign keys refuse it. */
+  orphans: { lane: string; id: string; seq: number }[] = [];
   faults: Faults = {};
   private clockSkewMs = 0;
 
@@ -139,7 +141,7 @@ export class ReferenceClient {
     const ok = await this.request("POST", "/v1/hello", {
       t: "hello", pv: 1, device: this.deviceId, since: this.cursor, schema: 219, app: "reference", ...(this.epoch ? { epoch: this.epoch } : {}),
     });
-    if (ok.resync === true) await this.bootstrap();
+    if (ok.resync === true) await this.bootstrap(typeof ok.reason === "string" ? ok.reason : null);
     else if (this.epoch === null) this.epoch = String(ok.epoch);
     return ok;
   }
@@ -231,6 +233,7 @@ export class ReferenceClient {
     if (frame.from > this.cursor + 1) { this.stats.gaps++; return false; }
     const next = new Map(this.rows);
     const kept: KeptVersion[] = [];
+    const orphans: { lane: string; id: string; seq: number }[] = [];
     const ops = [...frame.ops].sort((a, b) => a.seq - b.seq);
     for (const op of ops) {
       if (op.seq <= this.cursor) continue;
@@ -239,11 +242,14 @@ export class ReferenceClient {
         if (mine) next.set(key(op.lane, op.id), { ...mine, base_seq: Math.max(mine.base_seq, op.seq) });
         continue;
       }
+      if (!parentsHeld(next, op)) { orphans.push({ lane: op.lane, id: op.id, seq: op.seq }); continue; }
       applyRemote(next, op, kept);
     }
     if (this.faults.crashMidApply?.()) return true;
     this.rows = next;
     this.kept.push(...kept);
+    this.orphans.push(...orphans);
+    this.stats.orphans += orphans.length;
     this.cursor = Math.max(this.cursor, frame.to);
     return true;
   }
@@ -271,9 +277,16 @@ export class ReferenceClient {
     await this.request("POST", "/v1/ack", { seq: this.cursor });
   }
 
-  /** Pages the row table, then catches up from the pinned seq. Dirty local rows survive. */
-  async bootstrap(): Promise<void> {
+  /**
+   * Pages the row table, then catches up from the pinned seq. Dirty local rows
+   * survive. For a restored or rewound library (`reason` "epoch" or
+   * "ahead_of_server", D-142) a CLEAN row the snapshot does not name at its
+   * revision or newer is offered again: dirty, its base the named row's seq
+   * (the revision here came after it on the old log), or 0 when not named.
+   */
+  async bootstrap(reason: string | null = null): Promise<void> {
     this.stats.bootstraps++;
+    const clean = reason === "epoch" || reason === "ahead_of_server" ? [...this.rows.values()].filter((r) => !r.dirty) : [];
     const next = new Map<string, LocalRow>();
     for (const r of this.dirtyRows()) next.set(key(r.lane, r.id), { ...r, base_seq: 0 });
     let after = { after_lane: "", after_id: "" };
@@ -283,10 +296,18 @@ export class ReferenceClient {
       const page = await this.request("GET", `/v1/snapshot?after_lane=${encodeURIComponent(after.after_lane)}&after_id=${encodeURIComponent(after.after_id)}&limit=500`);
       if (pinned === null) { pinned = Number(page.pinned_seq); epoch = String(page.epoch); }
       const kept: KeptVersion[] = [];
-      for (const row of page.rows as WireRow[]) applyRemote(next, row, kept);
+      for (const row of page.rows as WireRow[]) {
+        if (!parentsHeld(next, row)) { this.orphans.push({ lane: row.lane, id: row.id, seq: row.seq }); this.stats.orphans++; continue; }
+        applyRemote(next, row, kept);
+      }
       this.kept.push(...kept);
       if (page.more !== true) break;
       after = page.next as typeof after;
+    }
+    for (const r of clean) {
+      const held = next.get(key(r.lane, r.id));
+      if (held && (LANES[r.lane]?.stampColumn !== undefined || !isNewer(r.updated_at, held.updated_at))) continue;
+      next.set(key(r.lane, r.id), { ...r, dirty: true, base_seq: held?.base_seq ?? 0 });
     }
     this.rows = next;
     this.cursor = pinned ?? 0;
@@ -309,6 +330,21 @@ export class ReferenceClient {
   }
 }
 
+/**
+ * Recall's store refuses a row whose foreign key names a row it does not
+ * hold (SQLite, Sources/Core/Database.swift), and the Swift appliers catch
+ * that per row and move on. This client refuses the same way, so a soak or a
+ * conformance run sees a parent delivered after its child (review
+ * 2026-09-26, BACKEND-13). A tombstoned parent still satisfies the key.
+ */
+export function parentsHeld(rows: Map<string, LocalRow>, op: WireRow): boolean {
+  for (const [col, lane] of PARENT_COLUMNS[op.lane] ?? []) {
+    const id = op.env[col];
+    if (typeof id === "string" && !rows.has(key(lane, id))) return false;
+  }
+  return true;
+}
+
 export function fromWire(w: WireRow): LocalRow {
   return { lane: w.lane, id: w.id, kind: w.kind, updated_at: w.updated_at, env: w.env, content: w.content, dirty: false, base_seq: w.seq };
 }
@@ -329,10 +365,10 @@ export function applyRemote(rows: Map<string, LocalRow>, op: WireRow, kept: Kept
   }
   if (op.seq <= local.base_seq && !local.dirty) return;
   if (local.dirty) {
-    if (isNewer(local.updated_at, op.updated_at)) {
-      rows.set(k, { ...local, base_seq: Math.max(local.base_seq, op.seq) });
-      return;
-    }
+    // A pulled revision this row did not take is NOT seen (Recall landmine
+    // 250): `base_seq` stays, so the push that follows is adjudicated
+    // against it instead of replacing it as its successor.
+    if (isNewer(local.updated_at, op.updated_at)) return;
     if (canonical(local.content) !== canonical(op.content) && local.kind === "upsert") {
       kept.push({ lane: local.lane, id: local.id, updated_at: local.updated_at, content: local.content, reason: "overwritten" });
     }

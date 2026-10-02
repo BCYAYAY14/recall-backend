@@ -65,12 +65,67 @@ describe("pairing (S4, S5)", () => {
     await expect(pairClaim(E, { code: begun.json.code, ...dev(), platform: "ios" }, Date.now() + 6 * 60_000)).rejects.toMatchObject({ status: 401 });
   });
 
-  it("a browser pairs with read_share scope and may not push", async () => {
+  // PLAN-BETA-0.12 section 26, ruling W-0 (2026-09-23): a paired browser is
+  // a DEVICE with full scope, because it grades and edits.
+  it("a browser pairs with full scope and may push", async () => {
     const web = await pairedDevice("web", "Browser");
-    expect(web.scope).toBe("read_share");
+    expect(web.scope).toBe("full");
+    const push = await call("POST", "/v1/push", { t: "push", batch: crypto.randomUUID(), ops: [] }, web.token);
+    expect(push.status).toBe(200);
+  });
+
+  // Ruling D-028: the browser keeps the full scope, but only Recall begins a pairing.
+  it("a browser cannot begin a pairing", async () => {
+    const web = await pairedDevice("web", "Browser");
+    const refused = await call("POST", "/v1/pair/begin", undefined, web.token);
+    expect(refused.status).toBe(403);
+    expect(refused.json.error).toBe("scope");
+    expect((await call("POST", "/v1/push", { t: "push", batch: crypto.randomUUID(), ops: [] }, web.token)).status).toBe(200);
+    const phone = await pairedDevice("ios", "Phone");
+    expect((await call("POST", "/v1/pair/begin", undefined, phone.token)).status).toBe(200);
+  });
+
+  // Row D-140: the refusal rests on how the device PAIRED, not on what it
+  // declared. A claim carrying a browser's forbidden headers is recorded as
+  // `web`; a native claim (no Origin, no Sec-Fetch-Site) keeps its platform.
+  it("a browser that declared another platform cannot begin a pairing", async () => {
+    const o = await ownerDevice();
+    const browserHeaders: Record<string, string>[] = [
+      { origin: "https://recall.test", "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors" },
+      { origin: "https://recall.test" },
+      { "sec-fetch-site": "same-origin" },
+    ];
+    for (const [i, extra] of browserHeaders.entries()) {
+      const begun = await call("POST", "/v1/pair/begin", undefined, o.token);
+      const deviceId = crypto.randomUUID();
+      const claimed = await call("POST", "/v1/pair/claim", { code: begun.json.code, device_id: deviceId, label: "Disguised", platform: i % 2 ? "ios" : "mac" }, undefined,
+        { "cf-connecting-ip": crypto.randomUUID(), ...extra });
+      expect(claimed.status).toBe(200);
+      expect(claimed.json.scope).toBe("full");
+      const row = await E.META.prepare("SELECT platform FROM device WHERE id = ?").bind(deviceId).first<{ platform: string }>();
+      expect(row?.platform).toBe("web");
+      const token = String(claimed.json.token);
+      const refused = await call("POST", "/v1/pair/begin", undefined, token);
+      expect(refused.status).toBe(403);
+      expect(refused.json.error).toBe("scope");
+      expect((await call("POST", "/v1/push", { t: "push", batch: crypto.randomUUID(), ops: [] }, token)).status).toBe(200);
+    }
+    // Node's fetch sends Sec-Fetch-Mode alone; that is not a browser.
+    const begun = await call("POST", "/v1/pair/begin", undefined, o.token);
+    const tool = await call("POST", "/v1/pair/claim", { code: begun.json.code, ...dev() }, undefined, { "cf-connecting-ip": crypto.randomUUID(), "sec-fetch-mode": "cors" });
+    expect(tool.status).toBe(200);
+    expect((await call("POST", "/v1/pair/begin", undefined, String(tool.json.token))).status).toBe(200);
+  });
+
+  // A credential issued read_share before the ruling keeps its old reach:
+  // the scope is read from the device row, never from the platform.
+  it("a read_share credential may not push or begin a pairing", async () => {
+    const web = await pairedDevice("web", "Old browser");
+    await E.META.prepare("UPDATE device SET scope = 'read_share' WHERE id = ?").bind(web.deviceId).run();
     const push = await call("POST", "/v1/push", { t: "push", batch: crypto.randomUUID(), ops: [] }, web.token);
     expect(push.status).toBe(403);
     expect((await call("POST", "/v1/pair/begin", undefined, web.token)).status).toBe(403);
+    expect((await call("GET", "/v1/pull?since=0", undefined, web.token)).status).toBe(200);
   });
 });
 

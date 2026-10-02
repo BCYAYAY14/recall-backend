@@ -19,4 +19,8 @@ export interface Env {
   DEPLOYED_AT?: string;
   /** The estimated daily DO row-write allowance the push refuses beyond. "0" disables. */
   DO_ROWS_DAILY_LIMIT?: string;
+  /** The owner's OpenRouter key for Make Cards and the quiz on the web. A secret; absent means off. */
+  OPENROUTER_KEY?: string;
+  /** Where the completion goes; OpenRouter's own endpoint unless a local test points elsewhere. */
+  OPENROUTER_ENDPOINT?: string;
 }

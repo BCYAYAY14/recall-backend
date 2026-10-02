@@ -5,7 +5,7 @@
 
 import { canonical } from "./canonical.ts";
 import { wireMillis, wireTime } from "./isnewer.ts";
-import { LANE_ORDER, LANES, LIMITS, PROTOCOL_MAX, PROTOCOL_MIN, validateOp,
+import { LANE_ORDER, LANES, LIMITS, MAX_FUTURE_MS, PARENT_COLUMNS, PROTOCOL_MAX, PROTOCOL_MIN, validateOp,
   type Outcome, type PushOp, type WireRow } from "./protocol.ts";
 
 export interface Sql {
@@ -27,7 +27,14 @@ export class Refused extends Error {
 
 const DAY = 86_400_000;
 export const OP_RETENTION_MS = 45 * DAY;
-export const TOMBSTONE_PURGE_MS = 30 * DAY;
+/**
+ * A tombstone outlives the op log by far, and goes only once every device
+ * seen inside this window has acknowledged it: purged sooner, a device away
+ * 31 to 45 days pushed an older edit of the row as NEW and resurrected it,
+ * and a device bootstrapping after a long absence never heard of the delete
+ * (review 2026-09-26, BACKEND-4).
+ */
+export const TOMBSTONE_PURGE_MS = 365 * DAY;
 export const ACK_WRITE_INTERVAL_MS = 10_000;
 export const LAST_SEEN_INTERVAL_MS = 15 * 60_000;
 
@@ -214,7 +221,8 @@ export class LibraryCore {
     const counts = { applied: 0, duplicate: 0, stale: 0, conflict: 0, rejected: 0 };
     const valid: { index: number; op: PushOp }[] = [];
     ops.forEach((raw, index) => {
-      const reason = validateOp(raw);
+      const reason = validateOp(raw)
+        ?? (wireMillis((raw as PushOp).updated_at)! > now + MAX_FUTURE_MS ? "future_time" : null);
       if (reason) {
         const opId = (raw as { op_id?: unknown })?.op_id;
         results[index] = { op_id: typeof opId === "string" ? opId : "", outcome: "rejected", reason };
@@ -324,16 +332,17 @@ export class LibraryCore {
   // MARK: pull
 
   pull(since: number, limit: number) {
+    if (!Number.isSafeInteger(since) || since < 0) throw new Refused(400, "bad_since", "since is a whole number.");
     const seq = this.maxSeq();
     if (since < seq && since + 1 < this.retainedFrom()) {
       throw new Refused(409, "resync_required", "This device is behind the retained log and must bootstrap.");
     }
-    const n = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const n = pageSize(limit, 500);
     const rows = this.sql.exec<OpRecord>("SELECT * FROM op WHERE seq > ? ORDER BY seq LIMIT ?", since, n + 1);
     const more = rows.length > n;
     const page = more ? rows.slice(0, n) : rows;
     const to = more ? page[page.length - 1]!.seq : seq;
-    return { t: "ops", from: since + 1, to: Math.max(to, since), more, ops: page.map(wireRowFromOp) };
+    return { t: "ops", from: since + 1, to: Math.max(to, since), more, ops: carryReplaced(page.map(wireRowFromOp)) };
   }
 
   /** Records a cursor. Written at most once per 10 s per device (plan 15.3c). */
@@ -349,19 +358,97 @@ export class LibraryCore {
 
   // MARK: bootstrap
 
+  /**
+   * One page of the rows in DEPENDENCY order, so a device that lands a page
+   * already holds every parent its rows name (review 2026-09-26, BACKEND-1:
+   * the old `(lane, id)` order put every card before its note and every note
+   * before its doc, and a fresh device dropped them on its foreign keys).
+   * Lanes go in `LANE_ORDER`; inside `note` the roots come first by id, then
+   * the children by depth and id. `next` is opaque: a client sends it back
+   * unread. A cursor from before this order starts the walk again, which a
+   * client absorbs (a row applied twice is the same row).
+   */
   snapshot(afterLane: string, afterId: string, limit: number) {
-    const n = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const n = pageSize(limit, 500);
     const pinned = this.maxSeq();
-    const rows = this.sql.exec<RowRecord>(
-      "SELECT * FROM row WHERE (lane > ?) OR (lane = ? AND id > ?) ORDER BY lane, id LIMIT ?",
-      afterLane, afterLane, afterId, n + 1);
-    const more = rows.length > n;
-    const page = more ? rows.slice(0, n) : rows;
+    const got = this.orderedRows(snapshotCursor(afterLane, afterId), n + 1);
+    const more = got.length > n;
+    const page = more ? got.slice(0, n) : got;
     const last = page[page.length - 1];
     return {
-      pinned_seq: pinned, epoch: this.epoch(), rows: page.map(wireRowFrom), more,
-      next: more && last ? { after_lane: last.lane, after_id: last.id } : null,
+      pinned_seq: pinned, epoch: this.epoch(), rows: page.map((x) => wireRowFrom(x.row)), more,
+      next: more && last ? { after_lane: `${CURSOR_TAG}:${last.row.lane}:${last.tier}`, after_id: last.row.id } : null,
     };
+  }
+
+  /** Up to `want` rows after the cursor, each with its tier (0, or a note's depth under its root). */
+  private orderedRows(at: SnapshotCursor, want: number): { row: RowRecord; tier: number }[] {
+    const out: { row: RowRecord; tier: number }[] = [];
+    for (let rank = at.rank; rank < LANE_ORDER.length && out.length < want; rank++) {
+      const lane = LANE_ORDER[rank]!;
+      const tier = rank === at.rank ? at.tier : 0;
+      const after = rank === at.rank ? at.id : "";
+      const left = want - out.length;
+      if (lane === "note") {
+        out.push(...this.notesInOrder(tier, after, left));
+      } else if (tier === 0) {
+        for (const row of this.sql.exec<RowRecord>("SELECT * FROM row WHERE lane = ? AND id > ? ORDER BY id LIMIT ?", lane, after, left)) {
+          out.push({ row, tier: 0 });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Notes with no parent by id, then every note that names one, by its depth
+   * under the nearest root and then by id. A note whose parent is gone, or
+   * a cycle, counts from depth 1. Only the child phase reads the whole lane,
+   * and only its (id, parent) pairs.
+   */
+  private notesInOrder(afterTier: number, afterId: string, want: number): { row: RowRecord; tier: number }[] {
+    const out: { row: RowRecord; tier: number }[] = [];
+    if (afterTier === 0) {
+      for (const row of this.sql.exec<RowRecord>(`SELECT * FROM row WHERE lane = 'note' AND id > ?
+          AND json_extract(payload, '$.env.parent_id') IS NULL ORDER BY id LIMIT ?`, afterId, want)) {
+        out.push({ row, tier: 0 });
+      }
+      if (out.length >= want) return out;
+      afterTier = 1;
+      afterId = "";
+    }
+    const links = this.sql.exec<{ id: string; parent: string }>(`SELECT id, json_extract(payload, '$.env.parent_id') AS parent
+      FROM row WHERE lane = 'note' AND json_extract(payload, '$.env.parent_id') IS NOT NULL`);
+    if (links.length === 0) return out;
+    const parentOf = new Map(links.map((l) => [l.id, l.parent]));
+    const tiers = new Map<string, number>();
+    const tierOf = (start: string): number => {
+      const chain: string[] = [];
+      const onChain = new Set<string>();
+      let base = 0;
+      for (let cur: string | undefined = start; cur !== undefined && parentOf.has(cur); cur = parentOf.get(cur)) {
+        const known = tiers.get(cur);
+        if (known !== undefined) { base = known; break; }
+        if (onChain.has(cur)) break;
+        onChain.add(cur);
+        chain.push(cur);
+      }
+      for (let i = chain.length - 1, t = base + 1; i >= 0; i--, t++) tiers.set(chain[i]!, t);
+      return tiers.get(start)!;
+    };
+    const order = links.map((l) => ({ id: l.id, tier: tierOf(l.id) }))
+      .filter((x) => x.tier > afterTier || (x.tier === afterTier && x.id > afterId))
+      .sort((a, b) => a.tier - b.tier || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, want - out.length);
+    if (order.length === 0) return out;
+    const rows = this.sql.exec<RowRecord>("SELECT * FROM row WHERE lane = 'note' AND id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(order.map((x) => x.id)));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const x of order) {
+      const row = byId.get(x.id);
+      if (row) out.push({ row, tier: x.tier });
+    }
+    return out;
   }
 
   // MARK: digest
@@ -420,10 +507,14 @@ export class LibraryCore {
   /**
    * The daily compaction (PROTOCOL.md section 5, plan 6.7):
    * 1. superseded ops (a newer op for the same row exists) are deleted whatever
-   *    their age; a cursor below them still converges on the newer op;
+   *    their age, EXCEPT a parent's oldest op while a retained op that names
+   *    the parent precedes the parent's newest one, so a catch-up still meets
+   *    the parent first (BACKEND-2); a deleted op's `replaced` marker moves to
+   *    its row's newest op (BACKEND-3);
    * 2. ops older than 45 days AND at or below every recently seen device's
    *    cursor are deleted, and `retained_from` moves past them;
-   * 3. tombstone rows older than 30 days are purged;
+   * 3. tombstone rows older than a year AND at or below the cursor of every
+   *    device seen within that year are purged (BACKEND-4);
    * the newest op is never deleted, so the sequence never restarts.
    */
   compact(now: number): { superseded: number; aged: number; purged: number; retainedFrom: number } {
@@ -432,34 +523,90 @@ export class LibraryCore {
       const active = this.sql.exec<{ m: number | null }>(
         "SELECT MIN(ack_seq) AS m FROM client WHERE revoked_at IS NULL AND last_seen_at >= ?", now - OP_RETENTION_MS)[0]?.m;
       const ackFloor = active ?? max;
-      // Every op that writes a row stamps the row with its own seq, so an op
-      // below its row's seq is superseded (schema 2: no index on op by row).
-      const superseded = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM op WHERE seq <> ? AND seq <
-        (SELECT r.seq FROM row r WHERE r.lane = op.lane AND r.id = op.row_id)`, max)[0]!.n;
-      this.sql.exec(`DELETE FROM op WHERE seq <> ? AND seq <
-        (SELECT r.seq FROM row r WHERE r.lane = op.lane AND r.id = op.row_id)`, max);
+      const superseded = this.dropSuperseded(max);
       const agedRows = this.sql.exec<{ s: number | null; n: number }>(
         "SELECT MAX(seq) AS s, COUNT(*) AS n FROM op WHERE at < ? AND seq <= ? AND seq <> ?", now - OP_RETENTION_MS, ackFloor, max)[0]!;
       if (agedRows.n > 0 && agedRows.s !== null) {
         this.sql.exec("DELETE FROM op WHERE at < ? AND seq <= ? AND seq <> ?", now - OP_RETENTION_MS, ackFloor, max);
         this.setMeta("retained_from", String(Math.max(this.retainedFrom(), agedRows.s + 1)));
       }
+      const horizon = now - TOMBSTONE_PURGE_MS;
+      const seen = this.sql.exec<{ m: number | null }>(
+        "SELECT MIN(ack_seq) AS m FROM client WHERE revoked_at IS NULL AND last_seen_at >= ?", horizon)[0]?.m;
+      const tombFloor = seen ?? max;
       const purged = this.sql.exec<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM row WHERE deleted_at IS NOT NULL AND updated_ms < ?", now - TOMBSTONE_PURGE_MS)[0]!.n;
-      this.sql.exec("DELETE FROM row WHERE deleted_at IS NOT NULL AND updated_ms < ?", now - TOMBSTONE_PURGE_MS);
+        "SELECT COUNT(*) AS n FROM row WHERE deleted_at IS NOT NULL AND updated_ms < ? AND seq <= ?", horizon, tombFloor)[0]!.n;
+      this.sql.exec("DELETE FROM row WHERE deleted_at IS NOT NULL AND updated_ms < ? AND seq <= ?", horizon, tombFloor);
       this.sql.exec("DELETE FROM conflict WHERE at < ?", now - OP_RETENTION_MS);
       this.setMeta("seq_floor", String(max));
       return { superseded, aged: agedRows.n, purged, retainedFrom: this.retainedFrom() };
     });
   }
 
-  /** The NDJSON body of a snapshot: meta, every row and every client. */
-  *snapshotLines(): Generator<string> {
-    yield JSON.stringify({ t: "meta", schema_version: this.meta("schema_version"), epoch: this.epoch(), seq: this.maxSeq(), retained_from: this.retainedFrom() });
-    for (const lane of LANE_ORDER) {
-      for (const r of this.sql.exec<RowRecord>("SELECT * FROM row WHERE lane = ? ORDER BY id", lane)) {
-        yield JSON.stringify({ t: "row", ...wireRowFrom(r) });
+  /**
+   * Step 1 of compaction. Every op that writes a row stamps the row with its
+   * own seq, so an op below its row's seq is superseded (schema 2: no index
+   * on op by row). Returns how many were deleted.
+   */
+  private dropSuperseded(max: number): number {
+    const refs = [...new Set(Object.values(PARENT_COLUMNS).flat().map(([col]) => col))];
+    const ops = this.sql.exec<Record<string, unknown> & { seq: number; lane: string; row_id: string; row_seq: number | null; ru: string | null; rd: string | null }>(
+      `SELECT o.seq, o.lane, o.row_id, (SELECT r.seq FROM row r WHERE r.lane = o.lane AND r.id = o.row_id) AS row_seq,
+         o.replaced_updated_at AS ru, o.replaced_device AS rd,
+         ${refs.map((c) => `json_extract(o.payload, '$.env.${c}') AS ${c}`).join(", ")}
+       FROM op o ORDER BY o.seq`);
+    const byRow = new Map<string, typeof ops>();
+    for (const o of ops) {
+      const k = `${o.lane}|${o.row_id}`;
+      const list = byRow.get(k);
+      if (list) list.push(o); else byRow.set(k, [o]);
+    }
+    const keep = new Set<number>();
+    const queue: typeof ops = [];
+    for (const o of ops) {
+      if (o.seq === max || o.row_seq === null || o.seq >= o.row_seq) { keep.add(o.seq); queue.push(o); }
+    }
+    // A kept op that names a parent needs one of the parent's ops kept below
+    // it; the parent's OLDEST op is the one that serves every such child.
+    while (queue.length) {
+      const x = queue.pop()!;
+      for (const [col, lane] of PARENT_COLUMNS[x.lane] ?? []) {
+        const id = x[col];
+        if (typeof id !== "string") continue;
+        const list = byRow.get(`${lane}|${id}`);
+        if (!list || list[0]!.seq > x.seq) continue;
+        if (list.some((p) => p.seq < x.seq && keep.has(p.seq))) continue;
+        keep.add(list[0]!.seq);
+        queue.push(list[0]!);
       }
+    }
+    const drop = ops.filter((o) => !keep.has(o.seq));
+    if (drop.length === 0) return 0;
+    // A deleted op's marker moves to its row's newest op when that op has
+    // none of its own; the newest deleted marker wins.
+    const carried = new Map<number, { ru: string; rd: string | null }>();
+    for (const o of drop) {
+      if (!o.ru) continue;
+      const list = byRow.get(`${o.lane}|${o.row_id}`)!;
+      const newest = list[list.length - 1]!;
+      if (keep.has(newest.seq) && !newest.ru) carried.set(newest.seq, { ru: o.ru, rd: o.rd });
+    }
+    for (const [seq, m] of carried) {
+      this.sql.exec("UPDATE op SET replaced_updated_at = ?, replaced_device = ? WHERE seq = ?", m.ru, m.rd, seq);
+    }
+    for (let i = 0; i < drop.length; i += 500) {
+      this.sql.exec("DELETE FROM op WHERE seq IN (SELECT value FROM json_each(?))", JSON.stringify(drop.slice(i, i + 500).map((o) => o.seq)));
+    }
+    return drop.length;
+  }
+
+  /** The NDJSON body of a snapshot: meta, every row in the bootstrap's order, and every client. */
+  *snapshotLines(): Generator<string> {
+    // `library_id` rides the meta line so a restore into an empty object
+    // knows whose snapshots, sync record and attachments it keeps (D-143).
+    yield JSON.stringify({ t: "meta", schema_version: this.meta("schema_version"), epoch: this.epoch(), seq: this.maxSeq(), retained_from: this.retainedFrom(), library_id: this.meta("library_id") });
+    for (const { row } of this.orderedRows(snapshotCursor("", ""), Number.MAX_SAFE_INTEGER)) {
+      yield JSON.stringify({ t: "row", ...wireRowFrom(row) });
     }
     for (const c of this.sql.exec("SELECT device_id, ack_seq, last_seen_at, protocol, revoked_at FROM client")) {
       yield JSON.stringify({ t: "client", ...c });
@@ -469,16 +616,30 @@ export class LibraryCore {
   /**
    * Restores rows from a snapshot into an EMPTY object with a NEW epoch, so
    * every device is told to bootstrap (plan 6.8, FI-14). Each row becomes one
-   * genesis op so the log is a complete catch-up source.
+   * genesis op so the log is a complete catch-up source. An object whose rows
+   * were all purged may still hold ops and conflicts: they go, and the
+   * genesis ops number on from the old sequence, which is never reused
+   * (review 2026-09-26, BACKEND-12). The object takes the snapshot's
+   * `library_id` when it has none (D-143: set only at claim, a deleted
+   * object's id went with it, and every later maintenance was skipped).
    */
   restoreFrom(lines: Iterable<string>, now: number): number {
     return this.sql.transaction(() => {
       const existing = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM row")[0]!.n;
       if (existing > 0) throw new Refused(409, "not_empty", "A snapshot is restored only into an empty library.");
-      let seq = 0;
+      const floor = this.maxSeq();
+      this.sql.exec("DELETE FROM op");
+      this.sql.exec("DELETE FROM conflict");
+      this.setMeta("seq_floor", String(floor));
+      let seq = floor;
+      let restored = 0;
       for (const line of lines) {
         if (!line.trim()) continue;
         const rec = JSON.parse(line) as Record<string, unknown>;
+        if (rec.t === "meta") {
+          if (typeof rec.library_id === "string" && rec.library_id && !this.meta("library_id")) this.setMeta("library_id", rec.library_id);
+          continue;
+        }
         if (rec.t === "client") {
           this.sql.exec("INSERT OR REPLACE INTO client (device_id, ack_seq, last_seen_at, protocol, revoked_at) VALUES (?, 0, ?, ?, ?)",
             rec.device_id, rec.last_seen_at, rec.protocol, rec.revoked_at ?? null);
@@ -487,18 +648,19 @@ export class LibraryCore {
         if (rec.t !== "row") continue;
         const r = rec as unknown as WireRow;
         if (!Object.hasOwn(LANES, r.lane)) continue;
-        seq++;
-        const payload = canonical({ content: r.content, env: r.env });
         const ms = wireMillis(r.updated_at);
         if (ms === null) continue;
+        seq++;
+        restored++;
+        const payload = canonical({ content: r.content, env: r.env });
         this.sql.exec(`INSERT INTO op (seq, op_id, device_id, lane, row_id, kind, updated_at, payload, at) VALUES (?, ?, 'restore', ?, ?, ?, ?, ?, ?)`,
           seq, this.newId(), r.lane, r.id, r.kind, r.updated_at, payload, now);
         this.sql.exec(`INSERT INTO row (lane, id, updated_at, updated_ms, deleted_at, payload, seq, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'restore')`,
           r.lane, r.id, r.updated_at, ms, (r.env.deleted_at as string | null | undefined) ?? null, payload, seq);
       }
       this.setMeta("epoch", this.newId());
-      this.setMeta("retained_from", "1");
-      return seq;
+      this.setMeta("retained_from", String(floor + 1));
+      return restored;
     });
   }
 }
@@ -513,6 +675,44 @@ function wireRowFromOp(r: OpRecord): WireRow {
   const row: WireRow = { seq: r.seq, op_id: r.op_id, lane: r.lane, id: r.row_id, kind: r.kind as WireRow["kind"], updated_at: r.updated_at, env: p.env, content: p.content };
   if (r.replaced_updated_at) row.replaced = { updated_at: r.replaced_updated_at, device: r.replaced_device ?? "" };
   return row;
+}
+
+/**
+ * A frame's ops, with a `replaced` marker carried onto the newest op of its
+ * row: a client applies only the newest op of a row in one frame, so a
+ * marker on an earlier one never reached it (review 2026-09-26, BACKEND-3).
+ * The newest op's own marker, when it has one, stays.
+ */
+export function carryReplaced(rows: WireRow[]): WireRow[] {
+  const newest = new Map<string, number>();
+  rows.forEach((r, i) => newest.set(`${r.lane}|${r.id}`, i));
+  let out = rows;
+  rows.forEach((r, i) => {
+    if (!r.replaced) return;
+    const j = newest.get(`${r.lane}|${r.id}`)!;
+    if (j === i || rows[j]!.replaced) return;
+    if (out === rows) out = [...rows];
+    out[j] = { ...rows[j]!, replaced: r.replaced };
+  });
+  return out;
+}
+
+/** A page size from a query or a frame: 1..1000, the fallback for anything not a number. */
+export function pageSize(limit: unknown, fallback: number): number {
+  const n = typeof limit === "number" ? limit : Number(limit);
+  return Number.isFinite(n) ? Math.max(1, Math.min(1000, Math.floor(n))) : fallback;
+}
+
+/** The snapshot cursor's tag. A cursor without it is from the (lane, id) order and starts again. */
+const CURSOR_TAG = "o1";
+
+interface SnapshotCursor { rank: number; tier: number; id: string }
+
+function snapshotCursor(afterLane: string, afterId: string): SnapshotCursor {
+  const m = /^o1:([a-z_]+):(\d{1,9})$/.exec(afterLane);
+  const rank = m ? LANE_ORDER.indexOf(m[1]!) : -1;
+  if (!m || rank < 0) return { rank: 0, tier: 0, id: "" };
+  return { rank, tier: Number(m[2]), id: afterId };
 }
 
 /** Lane order first; inside the note lane a parent before its children. */

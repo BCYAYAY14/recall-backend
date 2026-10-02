@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ReferenceClient } from "../../client/reference-client.ts";
 import { CASES, runCases, type ConformanceEnv } from "../../tools/conformance.ts";
-import { BASE, call, ownerDevice, pairedDevice, workerFetch } from "./helpers.ts";
+import { BASE, call, E, ownerDevice, pairedDevice, workerFetch } from "./helpers.ts";
 
 function runtimeEnv(): ConformanceEnv {
   return {
@@ -93,7 +93,10 @@ describe("the WebSocket (plan 6.3, P14, X3)", () => {
   });
 
   it("a read_share socket may pull but not push", async () => {
-    const web = await pairedDevice("web", "Browser");
+    // A browser pairs with full scope since ruling W-0 (2026-09-23); a
+    // read_share row is one issued before it, and keeps its old reach.
+    const web = await pairedDevice("web", "Old browser");
+    await E.META.prepare("UPDATE device SET scope = 'read_share' WHERE id = ?").bind(web.deviceId).run();
     const s = await socket(web.token);
     s.ws.send(JSON.stringify({ t: "push", batch: crypto.randomUUID(), ops: [] }));
     expect((await s.next("error")).reason).toBe("scope");
